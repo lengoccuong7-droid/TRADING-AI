@@ -162,23 +162,303 @@ with tabs[3]:
                 st.dataframe(summary["positions"],use_container_width=True)
             except Exception as e: st.error(f"Không đọc được danh mục: {e}")
 
+
 with tabs[4]:
-    st.subheader("Công cụ Excel/CSV độc lập")
-    st.caption("TAB này độc lập với lõi phân tích; không sửa dữ liệu thị trường và không phụ thuộc Scanner.")
-    file5=st.file_uploader("Tải Excel/CSV để xử lý riêng",type=["csv","txt","xlsx","xls"],key="tab5_upload")
-    if file5:
+    st.subheader("TRUNG TÂM QUẢN LÝ DỮ LIỆU EXCEL / CSV")
+
+    st.caption(
+        "Nhập dữ liệu, tự nhận diện cột, kiểm tra, lưu file mới "
+        "hoặc cập nhật kho dữ liệu cũ. Không tự sửa file gốc bạn tải lên."
+    )
+
+    # -----------------------------------------------------
+    # 1. NHẬP DỮ LIỆU
+    # -----------------------------------------------------
+    st.markdown("### 1. Nhập dữ liệu")
+
+    uploaded5 = st.file_uploader(
+        "Chọn file Excel / CSV / TXT",
+        type=["csv", "txt", "xlsx", "xls"],
+        key="tab5_upload_new"
+    )
+
+    if uploaded5 is not None:
         try:
-            sheet5=st.text_input("Sheet TAB 5 (tên hoặc chỉ số)",value="0"); arg=int(sheet5) if sheet5.isdigit() else sheet5
-            table=tab5_excel.read_table(file5,arg); st.dataframe(table,use_container_width=True)
-            c1,c2=st.columns(2)
-            c1.download_button("Xuất CSV",tab5_excel.to_csv_bytes(table),"tab5_export.csv","text/csv")
-            c2.download_button("Xuất Excel",tab5_excel.to_excel_bytes(table),"tab5_export.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        except Exception as e: st.error(f"Lỗi TAB 5: {e}")
+            raw_table = tab5_excel.read_table(uploaded5)
 
+            normalized_table, detected_mapping = (
+                tab5_excel.normalize_columns(raw_table)
+            )
 
-# =========================================================
-# TAB 6 · TRUNG TÂM TỔNG HỢP PHÂN TÍCH VÀ HỖ TRỢ QUYẾT ĐỊNH
-# =========================================================
+            st.session_state["tab5_current_table"] = normalized_table
+            st.session_state["tab5_source_name"] = uploaded5.name
+            st.session_state["tab5_detected_mapping"] = detected_mapping
+
+            st.success(
+                f"Đã đọc {len(normalized_table):,} dòng "
+                f"và {len(normalized_table.columns)} cột."
+            )
+
+        except Exception as e:
+            st.error(f"Không đọc được file: {e}")
+
+    table5 = st.session_state.get("tab5_current_table")
+
+    if table5 is not None:
+
+        st.markdown("### 2. Kiểm tra và chuẩn hóa")
+
+        st.write(
+            f"**File nguồn:** "
+            f"{st.session_state.get('tab5_source_name', 'Dữ liệu nhập')}"
+        )
+
+        st.write(
+            f"**Kích thước:** {len(table5):,} dòng × "
+            f"{len(table5.columns)} cột"
+        )
+
+        mapping5 = st.session_state.get(
+            "tab5_detected_mapping", {}
+        )
+
+        if mapping5:
+            st.write("**Các cột được tự nhận diện:**")
+            mapping_df = pd.DataFrame(
+                [
+                    {"Tên cột ban đầu": old, "Tên chuẩn": new}
+                    for old, new in mapping5.items()
+                ]
+            )
+            st.dataframe(
+                mapping_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        st.markdown("**Xem trước dữ liệu**")
+        st.dataframe(
+            table5.head(500),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.caption(
+            "Bảng xem trước hiển thị tối đa 500 dòng. "
+            "Dữ liệu đầy đủ vẫn được giữ trong bộ nhớ để xuất file."
+        )
+
+        # Kiểm tra OHLCV nếu nhận diện được cấu trúc dữ liệu giá
+        required_ohlcv = {
+            "date", "open", "high", "low", "close", "volume"
+        }
+
+        if required_ohlcv.issubset(set(table5.columns)):
+            issues5 = tab5_excel.validate_table(table5)
+
+            if issues5:
+                for issue in issues5:
+                    st.warning(issue)
+            else:
+                st.success("Kiểm tra cấu trúc OHLCV: chưa phát hiện lỗi cơ bản.")
+
+        else:
+            st.info(
+                "Đây là bảng dữ liệu tổng quát, chưa đủ các cột OHLCV "
+                "để kiểm tra theo cấu trúc dữ liệu cổ phiếu."
+            )
+
+        # -------------------------------------------------
+        # 3. LƯU FILE MỚI
+        # -------------------------------------------------
+        st.markdown("### 3. Lưu thành file mới")
+
+        save_col1, save_col2 = st.columns([2, 1])
+
+        with save_col1:
+            new_filename5 = st.text_input(
+                "Tên file muốn lưu (không cần phần mở rộng)",
+                value="du_lieu_co_phieu",
+                key="tab5_new_filename"
+            )
+
+        with save_col2:
+            new_format5 = st.selectbox(
+                "Định dạng",
+                ["xlsx", "csv"],
+                key="tab5_new_format"
+            )
+
+        if st.button(
+            "LƯU THÀNH FILE MỚI",
+            key="tab5_save_new",
+            type="primary"
+        ):
+            try:
+                saved_path = tab5_excel.save_new_file(
+                    table5,
+                    new_filename5,
+                    new_format5
+                )
+
+                st.success(
+                    f"Đã lưu: {saved_path.name}"
+                )
+
+            except FileExistsError as e:
+                st.warning(str(e))
+            except Exception as e:
+                st.error(f"Lỗi khi lưu file: {e}")
+
+        # -------------------------------------------------
+        # 4. CẬP NHẬT FILE ĐÃ LƯU
+        # -------------------------------------------------
+        st.markdown("### 4. Cập nhật dữ liệu vào file cũ")
+
+        saved_files5 = tab5_excel.list_saved_files()
+
+        if not saved_files5:
+            st.info(
+                "Kho dữ liệu Tab 5 chưa có file. "
+                "Hãy lưu một file mới trước khi cập nhật."
+            )
+
+        else:
+            old_file5 = st.selectbox(
+                "Chọn file cũ cần cập nhật",
+                saved_files5,
+                key="tab5_old_file"
+            )
+
+            old_format5 = old_file5.lower().endswith(".xlsx")
+
+            st.caption(
+                "Hệ thống sẽ sao lưu file cũ trước khi cập nhật. "
+                "Dữ liệu mới sẽ được ghép vào dữ liệu cũ."
+            )
+
+            key_options5 = [
+                c for c in ["symbol", "date"]
+                if c in table5.columns
+            ]
+
+            if "date" in table5.columns and "symbol" in table5.columns:
+                default_keys5 = ["symbol", "date"]
+            elif "date" in table5.columns:
+                default_keys5 = ["date"]
+            else:
+                default_keys5 = []
+
+            selected_keys5 = st.multiselect(
+                "Chọn cột dùng để xác định dòng trùng",
+                options=list(table5.columns),
+                default=default_keys5,
+                key="tab5_merge_keys"
+            )
+
+            st.caption(
+                "Với dữ liệu cổ phiếu, nên chọn symbol + date. "
+                "Nếu chỉ có một mã, có thể chọn date."
+            )
+
+            confirm_update5 = st.checkbox(
+                "Tôi đã kiểm tra dữ liệu và đồng ý cập nhật file đã chọn.",
+                key="tab5_confirm_update"
+            )
+
+            if st.button(
+                "ĐỐI CHIẾU VÀ CẬP NHẬT FILE CŨ",
+                key="tab5_update_old",
+                disabled=not confirm_update5
+            ):
+                try:
+                    if not selected_keys5:
+                        st.error(
+                            "Bạn phải chọn ít nhất một cột khóa "
+                            "để đối chiếu dữ liệu."
+                        )
+                    else:
+                        merged5, duplicate5, backup5 = (
+                            tab5_excel.update_saved_file(
+                                table5,
+                                old_file5,
+                                keys=selected_keys5
+                            )
+                        )
+
+                        st.success(
+                            f"Đã cập nhật thành công. "
+                            f"Tổng số dòng sau cập nhật: "
+                            f"{len(merged5):,}."
+                        )
+
+                        st.info(
+                            f"Số dòng trùng được gộp: {duplicate5:,}. "
+                            f"File sao lưu: {backup5.name}"
+                        )
+
+                        st.dataframe(
+                            merged5.tail(100),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                except Exception as e:
+                    st.error(f"Không cập nhật được file: {e}")
+
+        # -------------------------------------------------
+        # 5. XUẤT FILE TRỰC TIẾP
+        # -------------------------------------------------
+        st.markdown("### 5. Xuất dữ liệu đã xử lý")
+
+        export_col1, export_col2 = st.columns(2)
+
+        with export_col1:
+            st.download_button(
+                "TẢI FILE CSV",
+                data=tab5_excel.to_csv_bytes(table5),
+                file_name="du_lieu_da_xu_ly.csv",
+                mime="text/csv",
+                key="tab5_download_csv"
+            )
+
+        with export_col2:
+            st.download_button(
+                "TẢI FILE EXCEL",
+                data=tab5_excel.to_excel_bytes(table5),
+                file_name="du_lieu_da_xu_ly.xlsx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                key="tab5_download_excel"
+            )
+
+    else:
+        st.info(
+            "Hãy tải file Excel hoặc CSV lên để bắt đầu xử lý dữ liệu."
+        )
+
+    # -----------------------------------------------------
+    # 6. KHO FILE ĐÃ LƯU
+    # -----------------------------------------------------
+    st.markdown("### 6. Kho dữ liệu đã lưu")
+
+    current_saved_files5 = tab5_excel.list_saved_files()
+
+    if current_saved_files5:
+        st.write("Các file hiện có trong kho dữ liệu:")
+
+        st.dataframe(
+            pd.DataFrame({
+                "Tên file": current_saved_files5
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.caption("Chưa có file nào được lưu.")
+
 with tabs[5]:
     st.subheader("Trung tâm tổng hợp phân tích Trading")
     st.caption("Tổng hợp chỉ báo, vùng giá và kế hoạch tham chiếu từ các module hiện có; không tạo chức năng mua/bán trùng lặp.")
