@@ -1,22 +1,22 @@
 
 # =========================================================
 # BOT TRADER SWING MULTI
-# APP.PY - TÍCH HỢP TAB 5 ĐỘC LẬP
-# NỀN TẢNG: V2.2.0
+# APP.PY - V2.2.1
+# GIỮ 6 TAB - TAB 5 ĐỘC LẬP
 # =========================================================
 
-import io
-from pathlib import Path
+from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-from config import APP_NAME, DEFAULT_CAPITAL_VND, APP_VERSION
-
-from modules.data_loader import (
-    load_market_file,
-    prepare_market_data,
+from config import (
+    APP_NAME,
+    DEFAULT_CAPITAL_VND,
+    APP_VERSION,
 )
+
+from modules.data_loader import load_market_file
 
 from modules.market_analysis import analyze_universe
 from modules.backtest import simple_swing_backtest
@@ -39,47 +39,53 @@ from modules.indicator_summary import summarize_indicators
 st.set_page_config(
     page_title=APP_NAME,
     page_icon="📈",
-    layout="wide"
+    layout="wide",
 )
 
-st.markdown("""
-<style>
-.stTabs [data-baseweb="tab-list"] {
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    background: var(--background-color);
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    white-space: nowrap;
-    padding: .45rem .15rem;
-    border-bottom: 1px solid rgba(128,128,128,.25);
-    scrollbar-width: thin;
-}
+st.markdown(
+    """
+    <style>
 
-.stTabs [data-baseweb="tab"] {
-    flex: 0 0 auto;
-    white-space: nowrap;
-}
-
-.stTabs [data-baseweb="tab-panel"] {
-    padding-top: 1rem;
-}
-
-@media (max-width: 700px) {
-    .stTabs [data-baseweb="tab"] {
-        padding-left: .55rem;
-        padding-right: .55rem;
-        font-size: .82rem;
+    .stTabs [data-baseweb="tab-list"] {
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        background: var(--background-color);
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        padding: .45rem .15rem;
+        border-bottom: 1px solid rgba(128,128,128,.25);
+        scrollbar-width: thin;
     }
-}
 
-div[data-testid="stDataFrame"] {
-    width: 100%;
-}
+    .stTabs [data-baseweb="tab"] {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
 
-</style>
-""", unsafe_allow_html=True)
+    .stTabs [data-baseweb="tab-panel"] {
+        padding-top: 1rem;
+    }
+
+    @media (max-width: 700px) {
+
+        .stTabs [data-baseweb="tab"] {
+            padding-left: .55rem;
+            padding-right: .55rem;
+            font-size: .82rem;
+        }
+
+    }
+
+    div[data-testid="stDataFrame"] {
+        width: 100%;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 st.title(APP_NAME)
@@ -95,28 +101,70 @@ st.caption(
 # 2. KHỞI TẠO SESSION STATE
 # =========================================================
 
-if "market_data" not in st.session_state:
-    st.session_state.market_data = None
+DEFAULT_STATE = {
+    "market_data": None,
+    "analysis": None,
 
-if "analysis" not in st.session_state:
-    st.session_state.analysis = None
+    # Tab 5 độc lập
+    "tab5_table": None,
+    "tab5_source_name": "",
+    "tab5_paste_text": "",
+    "tab5_status": "",
+    "tab5_old_preview": None,
 
-# Các biến riêng của Tab 5.
-if "tab5_table" not in st.session_state:
-    st.session_state.tab5_table = None
+    # Trạng thái Tab 1
+    "market_data_name": "",
+}
 
-if "tab5_source_name" not in st.session_state:
-    st.session_state.tab5_source_name = ""
+for key, value in DEFAULT_STATE.items():
 
-if "tab5_paste_text" not in st.session_state:
-    st.session_state.tab5_paste_text = ""
-
-if "tab5_status" not in st.session_state:
-    st.session_state.tab5_status = ""
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
 # =========================================================
-# 3. TẠO 6 TAB
+# 3. HÀM HỖ TRỢ
+# =========================================================
+
+def get_analysis_results(data):
+
+    """
+    Chỉ phân tích khi chưa có kết quả hoặc dữ liệu vừa thay đổi.
+    """
+
+    if data is None or data.empty:
+        return None
+
+    if st.session_state.analysis is None:
+
+        st.session_state.analysis = analyze_universe(data)
+
+    return st.session_state.analysis
+
+
+def safe_number(value, digits=2):
+
+    if value is None:
+        return "—"
+
+    try:
+
+        if pd.isna(value):
+            return "—"
+
+        return f"{float(value):,.{digits}f}"
+
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def show_error(message, error):
+
+    st.error(f"{message}: {error}")
+
+
+# =========================================================
+# 4. TẠO 6 TAB
 # =========================================================
 
 tabs = st.tabs([
@@ -143,9 +191,9 @@ with tabs[0]:
             "csv",
             "xlsx",
             "xls",
-            "txt"
+            "txt",
         ],
-        key="market_upload"
+        key="market_upload",
     )
 
     c1, c2 = st.columns(2)
@@ -153,167 +201,171 @@ with tabs[0]:
     hint = c1.text_input(
         "Mã cổ phiếu nếu file chỉ có một mã",
         value="",
-        key="market_symbol_hint"
+        key="market_symbol_hint",
     )
 
     sheet = c2.text_input(
         "Tên sheet Excel (để trống = sheet đầu tiên)",
         value="",
-        key="market_sheet_name"
+        key="market_sheet_name",
     )
 
-    if up:
+    # -----------------------------------------------------
+    # ĐỌC DỮ LIỆU
+    # -----------------------------------------------------
+
+    if up is not None:
 
         try:
 
-            filename = str(up.name).lower()
+            filename = up.name.lower()
 
-            # Đọc Excel theo sheet được chọn.
+            sheet_arg = 0
+
             if filename.endswith((".xlsx", ".xls")):
 
-                sheet_arg = (
-                    int(sheet)
-                    if sheet.strip().isdigit()
-                    else sheet.strip()
-                    if sheet.strip()
-                    else 0
-                )
+                if sheet.strip().isdigit():
 
-                raw_data = pd.read_excel(
-                    up,
-                    sheet_name=sheet_arg,
-                    dtype=object
-                )
+                    sheet_arg = int(sheet.strip())
 
-                data = prepare_market_data(raw_data)
+                elif sheet.strip():
 
-            else:
+                    sheet_arg = sheet.strip()
 
-                data = load_market_file(up)
-
-            # Bổ sung mã cổ phiếu nếu file không có mã.
-            if "symbol" not in data.columns:
-
-                data["symbol"] = (
-                    hint.strip().upper()
-                    if hint.strip()
-                    else "UNKNOWN"
-                )
-
-            else:
-
-                data["symbol"] = (
-                    data["symbol"]
-                    .astype("string")
-                    .str.strip()
-                    .str.upper()
-                )
-
-                if hint.strip():
-
-                    data["symbol"] = data["symbol"].fillna(
-                        hint.strip().upper()
-                    )
-
-                    data["symbol"] = data["symbol"].replace(
-                        "",
-                        hint.strip().upper()
-                    )
-
-            # Không chấp nhận mã rỗng.
-            data["symbol"] = data["symbol"].fillna(
-                "UNKNOWN"
+            # Tất cả định dạng đi qua cùng một bộ chuẩn hóa.
+            new_data = load_market_file(
+                up,
+                sheet_name=sheet_arg,
+                symbol_hint=hint.strip().upper() or None,
             )
 
-            # Lưu dữ liệu vào Tab 1.
-            st.session_state.market_data = data
+            if new_data is None or new_data.empty:
 
-            # Xóa kết quả phân tích cũ khi nạp bộ dữ liệu mới.
+                raise ValueError(
+                    "File không có dữ liệu hợp lệ."
+                )
+
+            # Chỉ cập nhật sau khi đọc và kiểm tra thành công.
+            st.session_state.market_data = new_data.copy()
+
+            st.session_state.market_data_name = up.name
+
+            # Xóa kết quả phân tích cũ.
             st.session_state.analysis = None
 
             st.success(
-                f"Đọc thành công {len(data):,} dòng, "
-                f"{data.symbol.nunique()} mã."
+                f"Đọc thành công {len(new_data):,} dòng, "
+                f"{new_data['symbol'].nunique()} mã."
             )
 
         except Exception as e:
 
-            st.error(
-                f"Không thể nạp dữ liệu: {e}"
+            show_error(
+                "Không thể nạp dữ liệu",
+                e,
             )
 
     data = st.session_state.market_data
 
-    if data is not None:
+    # -----------------------------------------------------
+    # HIỂN THỊ DỮ LIỆU
+    # -----------------------------------------------------
 
-        quality = assess_data_quality(data)
+    if data is None:
 
-        regime = assess_market_regime(data)
-
-        m1, m2, m3, m4 = st.columns(4)
-
-        m1.metric(
-            "Chất lượng cấu trúc",
-            f"{quality['score']}/100"
+        st.info(
+            "Hãy tải dữ liệu OHLCV lên để bắt đầu phân tích."
         )
 
-        m2.metric(
-            "Trạng thái dữ liệu",
-            quality["status"]
-        )
-
-        m3.metric(
-            "Số mã",
-            data.symbol.nunique()
-        )
-
-        m4.metric(
-            "Trạng thái thị trường",
-            regime["regime"]
-        )
-
-        for issue in quality["issues"]:
-
-            if quality["status"] != "OK":
-                st.warning(issue)
-            else:
-                st.info(issue)
-
-        st.write(
-            "**Đánh giá thị trường:**",
-            " ".join(regime.get("reasons", []))
-        )
+    else:
 
         st.caption(
-            "Nếu không có VNINDEX, trạng thái thị trường "
-            "được ước lượng từ tỷ lệ mã nằm trên MA20 và MA50; "
-            "độ tin cậy thấp hơn."
+            f"File hiện tại: "
+            f"{st.session_state.market_data_name or 'Dữ liệu đã nạp'}"
         )
 
-        valid_dates = data["date"].dropna()
+        try:
 
-        if not valid_dates.empty:
+            quality = assess_data_quality(data)
+
+            regime = assess_market_regime(data)
+
+            m1, m2, m3, m4 = st.columns(4)
+
+            m1.metric(
+                "Chất lượng cấu trúc",
+                f"{quality['score']}/100",
+            )
+
+            m2.metric(
+                "Trạng thái dữ liệu",
+                quality["status"],
+            )
+
+            m3.metric(
+                "Số mã",
+                data["symbol"].nunique(),
+            )
+
+            m4.metric(
+                "Trạng thái thị trường",
+                regime["regime"],
+            )
+
+            for issue in quality.get("issues", []):
+
+                if quality["status"] != "OK":
+
+                    st.warning(issue)
+
+                else:
+
+                    st.info(issue)
 
             st.write(
-                f"Khoảng dữ liệu: "
-                f"{valid_dates.min().date()} → "
-                f"{valid_dates.max().date()}"
+                "**Đánh giá thị trường:**",
+                " ".join(regime.get("reasons", [])),
             )
+
+            st.caption(
+                "Nếu không có VNINDEX, trạng thái thị trường "
+                "có thể được ước lượng từ tỷ lệ mã nằm trên MA20 "
+                "và MA50; độ tin cậy thấp hơn."
+            )
+
+        except Exception as e:
+
+            st.warning(
+                f"Không thể tạo báo cáo chất lượng dữ liệu: {e}"
+            )
+
+        # Khoảng thời gian
+        if "date" in data.columns:
+
+            valid_dates = data["date"].dropna()
+
+            if not valid_dates.empty:
+
+                st.write(
+                    f"Khoảng dữ liệu: "
+                    f"{valid_dates.min().date()} → "
+                    f"{valid_dates.max().date()}"
+                )
 
         st.dataframe(
             data,
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
         )
 
         st.download_button(
             "Tải dữ liệu đã chuẩn hóa CSV",
-            data.to_csv(
+            data=data.to_csv(
                 index=False
             ).encode("utf-8-sig"),
-            "ohlcv_normalized.csv",
-            "text/csv",
-            key="download_market_normalized"
+            file_name="ohlcv_normalized.csv",
+            mime="text/csv",
+            key="download_market_normalized",
         )
 
 
@@ -335,149 +387,158 @@ with tabs[1]:
 
     else:
 
-        results = st.session_state.analysis
+        try:
 
-        if results is None:
+            results = get_analysis_results(data)
 
-            results = analyze_universe(data)
+            if not results:
 
-            st.session_state.analysis = results
+                st.warning(
+                    "Chưa có kết quả phân tích."
+                )
 
-        symbols = list(results.keys())
+            else:
 
-        selected = st.selectbox(
-            "Chọn mã",
-            symbols,
-            key="indicator_symbol"
-        )
+                symbols = list(results.keys())
 
-        enriched, decision = results[selected]
+                selected = st.selectbox(
+                    "Chọn mã",
+                    symbols,
+                    key="indicator_symbol",
+                )
 
-        latest = enriched.iloc[-1]
+                enriched, decision = results[selected]
 
-        cols = st.columns(5)
+                latest = enriched.iloc[-1]
 
-        for col, key in zip(
-            cols,
-            [
-                "SMA20",
-                "SMA50",
-                "SMA200",
-                "RSI14",
-                "ATR14"
-            ]
-        ):
+                cols = st.columns(5)
 
-            val = latest.get(key)
+                for col, key in zip(
+                    cols,
+                    [
+                        "SMA20",
+                        "SMA50",
+                        "SMA200",
+                        "RSI14",
+                        "ATR14",
+                    ],
+                ):
 
-            col.metric(
-                key,
-                "Chưa đủ dữ liệu"
-                if pd.isna(val)
-                else f"{val:,.2f}"
+                    val = latest.get(key)
+
+                    col.metric(
+                        key,
+                        safe_number(val),
+                    )
+
+                show = [
+                    c for c in [
+                        "date",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "SMA20",
+                        "SMA50",
+                        "SMA200",
+                        "EMA20",
+                        "RSI14",
+                        "MACD",
+                        "MACD_SIGNAL",
+                        "MACD_HIST",
+                        "ATR14",
+                        "ADX14",
+                        "REL_VOLUME20",
+                        "BB_UPPER",
+                        "BB_LOWER",
+                    ]
+                    if c in enriched.columns
+                ]
+
+                st.dataframe(
+                    enriched[show].tail(60),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # Biểu đồ đường trung bình
+                st.markdown(
+                    "#### Biểu đồ giá và các đường trung bình"
+                )
+
+                available_lines = [
+                    c for c in [
+                        "close",
+                        "SMA5",
+                        "SMA10",
+                        "SMA20",
+                        "SMA30",
+                        "SMA40",
+                        "SMA50",
+                        "HLC3",
+                        "VWAP20",
+                    ]
+                    if c in enriched.columns
+                ]
+
+                default_lines = [
+                    c for c in [
+                        "close",
+                        "SMA5",
+                        "SMA20",
+                        "SMA50",
+                        "VWAP20",
+                    ]
+                    if c in available_lines
+                ]
+
+                selected_lines = st.multiselect(
+                    "Chọn đường hiển thị",
+                    available_lines,
+                    default=default_lines,
+                    key=f"ma_lines_{selected}",
+                )
+
+                if selected_lines:
+
+                    chart_data = (
+                        enriched.tail(180)
+                        .set_index("date")[selected_lines]
+                        .copy()
+                    )
+
+                    chart_data = chart_data.rename(
+                        columns={
+                            "close": "Giá đóng cửa",
+                            "HLC3": "Giá bình quân HLC3",
+                            "VWAP20": "VWAP 20 phiên",
+                        }
+                    )
+
+                    st.line_chart(
+                        chart_data,
+                        use_container_width=True,
+                    )
+
+                else:
+
+                    st.info(
+                        "Chọn ít nhất một đường để hiển thị biểu đồ."
+                    )
+
+                st.caption(
+                    "MA dùng giá đóng cửa; HLC3 = (High + Low + Close)/3; "
+                    "VWAP20 là giá bình quân gia quyền khối lượng trong "
+                    "20 phiên gần nhất. Chỉ báo cần đủ lịch sử mới hiển thị."
+                )
+
+        except Exception as e:
+
+            show_error(
+                "Lỗi phân tích chỉ báo",
+                e,
             )
-
-        show = [
-            c for c in [
-                "date",
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-                "SMA20",
-                "SMA50",
-                "SMA200",
-                "EMA20",
-                "RSI14",
-                "MACD",
-                "MACD_SIGNAL",
-                "MACD_HIST",
-                "ATR14",
-                "ADX14",
-                "REL_VOLUME20",
-                "BB_UPPER",
-                "BB_LOWER"
-            ]
-            if c in enriched
-        ]
-
-        st.dataframe(
-            enriched[show].tail(60),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.markdown(
-            "#### Biểu đồ giá và các đường trung bình"
-        )
-
-        available_lines = [
-            c for c in [
-                "close",
-                "SMA5",
-                "SMA10",
-                "SMA20",
-                "SMA30",
-                "SMA40",
-                "SMA50",
-                "HLC3",
-                "VWAP20"
-            ]
-            if c in enriched.columns
-        ]
-
-        default_lines = [
-            c for c in [
-                "close",
-                "SMA5",
-                "SMA20",
-                "SMA50",
-                "VWAP20"
-            ]
-            if c in available_lines
-        ]
-
-        selected_lines = st.multiselect(
-            "Chọn đường hiển thị",
-            available_lines,
-            default=default_lines,
-            key=f"ma_lines_{selected}"
-        )
-
-        if selected_lines:
-
-            chart_data = (
-                enriched.tail(180)
-                .set_index("date")[selected_lines]
-                .copy()
-            )
-
-            chart_data = chart_data.rename(
-                columns={
-                    "close": "Giá đóng cửa",
-                    "HLC3": "Giá bình quân HLC3",
-                    "VWAP20": "VWAP 20 phiên"
-                }
-            )
-
-            st.line_chart(
-                chart_data,
-                use_container_width=True
-            )
-
-        else:
-
-            st.info(
-                "Chọn ít nhất một đường để hiển thị biểu đồ."
-            )
-
-        st.caption(
-            "MA dùng giá đóng cửa; HLC3 = (High + Low + Close)/3; "
-            "VWAP20 là giá bình quân gia quyền khối lượng trong "
-            "20 phiên gần nhất. Các chỉ báo cần đủ lịch sử mới "
-            "hiển thị; NaN không tự động thay bằng 0."
-        )
 
 
 # =========================================================
@@ -500,81 +561,113 @@ with tabs[2]:
 
     else:
 
-        results = st.session_state.analysis
+        try:
 
-        if results is None:
+            results = get_analysis_results(data)
 
-            results = analyze_universe(data)
+            if not results:
 
-            st.session_state.analysis = results
-
-        for symbol, (enriched, decision) in results.items():
-
-            with st.expander(
-                f"{symbol} · {decision.get('decision', '')}",
-                expanded=False
-            ):
-
-                st.write(
-                    "**Xu hướng:**",
-                    decision.get("trend", "Chưa xác định"),
-                    " · **Động lượng:**",
-                    decision.get("momentum", "Chưa xác định")
+                st.warning(
+                    "Chưa có kết quả phân tích."
                 )
 
-                for reason in decision.get("reasons", []):
+            else:
 
-                    st.write("•", reason)
-
-                strat = evaluate_strategies(enriched)
-
-                st.write(
-                    "**Chiến lược tham chiếu:**",
-                    strat["primary"]
-                )
-
-                for s in strat["signals"]:
-
-                    st.write(
-                        f"- {s['strategy']}: "
-                        f"{s['signal']} — {s['reason']}"
-                    )
-
-                analyst = run_ai_analysis(
+                for symbol, (
                     enriched,
-                    symbol
-                )
+                    decision
+                ) in results.items():
 
-                st.markdown(
-                    "**Diễn giải offline theo quy tắc**"
-                )
+                    with st.expander(
+                        f"{symbol} · {decision.get('decision', '')}",
+                        expanded=False,
+                    ):
 
-                st.write(
-                    analyst["summary"]
-                )
+                        st.write(
+                            "**Xu hướng:**",
+                            decision.get(
+                                "trend",
+                                "Chưa xác định",
+                            ),
+                            " · **Động lượng:**",
+                            decision.get(
+                                "momentum",
+                                "Chưa xác định",
+                            ),
+                        )
 
-                st.write(
-                    "Yếu tố tích cực:",
-                    analyst["bullish"]
-                    or ["Chưa có xác nhận rõ."]
-                )
+                        for reason in decision.get(
+                            "reasons",
+                            [],
+                        ):
 
-                st.write(
-                    "Rủi ro/phản biện:",
-                    analyst["risks"]
-                    or ["Chưa phát hiện theo bộ luật hiện tại."]
-                )
+                            st.write("•", reason)
 
-                st.write(
-                    "Quan sát:",
-                    analyst.get("observations", [])
-                )
+                        strat = evaluate_strategies(
+                            enriched
+                        )
 
-                st.caption(
-                    "Đây không phải mô hình AI tạo sinh, "
-                    "không dự báo chắc chắn và không phải "
-                    "khuyến nghị mua/bán."
-                )
+                        st.write(
+                            "**Chiến lược tham chiếu:**",
+                            strat["primary"],
+                        )
+
+                        for signal in strat["signals"]:
+
+                            st.write(
+                                f"- {signal['strategy']}: "
+                                f"{signal['signal']} — "
+                                f"{signal['reason']}"
+                            )
+
+                        analyst = run_ai_analysis(
+                            enriched,
+                            symbol,
+                        )
+
+                        st.markdown(
+                            "**Diễn giải offline theo quy tắc**"
+                        )
+
+                        st.write(
+                            analyst["summary"]
+                        )
+
+                        st.write(
+                            "Yếu tố tích cực:",
+                            analyst.get(
+                                "bullish",
+                                ["Chưa có xác nhận rõ."],
+                            ),
+                        )
+
+                        st.write(
+                            "Rủi ro/phản biện:",
+                            analyst.get(
+                                "risks",
+                                ["Chưa phát hiện theo bộ luật hiện tại."],
+                            ),
+                        )
+
+                        st.write(
+                            "Quan sát:",
+                            analyst.get(
+                                "observations",
+                                [],
+                            ),
+                        )
+
+                        st.caption(
+                            "Đây là diễn giải theo quy tắc hiện có, "
+                            "không phải mô hình dự báo chắc chắn."
+                        )
+
+        except Exception as e:
+
+            show_error(
+                "Lỗi trợ lý phân tích",
+                e,
+            )
 
 
 # =========================================================
@@ -597,214 +690,237 @@ with tabs[3]:
 
     else:
 
-        results = st.session_state.analysis
+        try:
 
-        c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4 = st.columns(4)
 
-        capital = c1.number_input(
-            "Vốn mô phỏng (VND)",
-            min_value=1_000_000,
-            value=DEFAULT_CAPITAL_VND,
-            step=1_000_000
-        )
-
-        risk = c2.number_input(
-            "Ngân sách rủi ro/mã (%)",
-            min_value=.1,
-            max_value=5.0,
-            value=1.0,
-            step=.1
-        )
-
-        allocation = c3.number_input(
-            "Tỷ trọng tối đa/mã (%)",
-            min_value=1.0,
-            max_value=100.0,
-            value=20.0,
-            step=1.0
-        )
-
-        lot = c4.number_input(
-            "Bước lô",
-            min_value=1,
-            value=100,
-            step=1
-        )
-
-        if st.button(
-            "Tính lại phân tích toàn bộ mã",
-            key="recalculate_universe"
-        ):
-
-            results = analyze_universe(
-                data,
-                capital_vnd=capital,
-                risk_pct=risk,
-                max_alloc_pct=allocation,
-                lot_size=int(lot)
+            capital = c1.number_input(
+                "Vốn mô phỏng (VND)",
+                min_value=1_000_000,
+                value=int(DEFAULT_CAPITAL_VND),
+                step=1_000_000,
+                key="capital_simulation",
             )
 
-            st.session_state.analysis = results
-
-        if results is None:
-
-            results = analyze_universe(data)
-
-            st.session_state.analysis = results
-
-        scanner = scan_universe(
-            results,
-            data
-        )
-
-        st.markdown(
-            "**Bảng xếp hạng nghiên cứu**"
-        )
-
-        st.dataframe(
-            scanner,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        st.download_button(
-            "Xuất bảng Scanner CSV",
-            scanner.to_csv(
-                index=False
-            ).encode("utf-8-sig"),
-            "scanner_ranking.csv",
-            "text/csv",
-            key="download_scanner"
-        )
-
-        st.caption(
-            "Điểm tổng là thang điểm heuristic nội bộ để "
-            "sắp xếp dữ liệu, không phải xác suất tăng giá "
-            "hay khuyến nghị đầu tư."
-        )
-
-        st.markdown(
-            "**Mô phỏng chiến lược trên một mã**"
-        )
-
-        sym = st.selectbox(
-            "Mã để mô phỏng",
-            list(data.symbol.unique()),
-            key="bt_symbol"
-        )
-
-        if st.button(
-            "Chạy backtest",
-            key="run_backtest"
-        ):
-
-            bt = simple_swing_backtest(
-                data[data.symbol == sym].copy()
+            risk = c2.number_input(
+                "Ngân sách rủi ro/mã (%)",
+                min_value=.1,
+                max_value=5.0,
+                value=1.0,
+                step=.1,
+                key="risk_simulation",
             )
 
-            if "error" in bt:
+            allocation = c3.number_input(
+                "Tỷ trọng tối đa/mã (%)",
+                min_value=1.0,
+                max_value=100.0,
+                value=20.0,
+                step=1.0,
+                key="allocation_simulation",
+            )
 
-                st.warning(bt["error"])
+            lot = c4.number_input(
+                "Bước lô",
+                min_value=1,
+                value=100,
+                step=1,
+                key="lot_simulation",
+            )
+
+            if st.button(
+                "Tính lại phân tích toàn bộ mã",
+                key="recalculate_universe",
+            ):
+
+                results = analyze_universe(
+                    data,
+                    capital_vnd=capital,
+                    risk_pct=risk,
+                    max_alloc_pct=allocation,
+                    lot_size=int(lot),
+                )
+
+                st.session_state.analysis = results
+
+            results = get_analysis_results(data)
+
+            if not results:
+
+                st.warning(
+                    "Không có kết quả phân tích để Scanner."
+                )
 
             else:
 
-                k1, k2, k3, k4 = st.columns(4)
-
-                k1.metric(
-                    "Tổng lợi nhuận mô phỏng",
-                    f"{bt['total_return_pct']:.2f}%"
+                scanner = scan_universe(
+                    results,
+                    data,
                 )
 
-                k2.metric(
-                    "Max Drawdown",
-                    f"{bt['max_drawdown_pct']:.2f}%"
-                )
-
-                k3.metric(
-                    "Số giao dịch đóng",
-                    bt["closed_trades"]
-                )
-
-                k4.metric(
-                    "Win rate",
-                    "—"
-                    if bt["win_rate_pct"] is None
-                    else f"{bt['win_rate_pct']:.1f}%"
-                )
-
-                st.json({
-                    k: v
-                    for k, v in bt.items()
-                    if k != "equity_curve"
-                })
-
-                st.line_chart(
-                    pd.DataFrame({
-                        "Equity mô phỏng": bt["equity_curve"]
-                    })
-                )
-
-        st.markdown(
-            "**Theo dõi danh mục (nhập CSV)**"
-        )
-
-        st.caption(
-            "Cột bắt buộc: symbol, quantity, entry_price. "
-            "Cột tùy chọn: market_price, stop_price. "
-            "Không kết nối tài khoản hay gửi lệnh."
-        )
-
-        pf = st.file_uploader(
-            "Tải CSV vị thế mô phỏng",
-            type=["csv"],
-            key="portfolio_upload"
-        )
-
-        if pf:
-
-            try:
-
-                positions = pd.read_csv(pf)
-
-                summary = summarize_portfolio(
-                    positions,
-                    capital
-                )
-
-                p1, p2, p3 = st.columns(3)
-
-                p1.metric(
-                    "Giá trị thị trường",
-                    f"{summary['market_value']:,.0f} VND"
-                )
-
-                p2.metric(
-                    "Lãi/lỗ chưa thực hiện",
-                    f"{summary['unrealized_pnl']:,.0f} VND"
-                )
-
-                p3.metric(
-                    "Tỷ trọng vốn",
-                    f"{summary['exposure_pct']:.1f}%"
-                )
-
-                st.write(
-                    f"Rủi ro tới stop tham chiếu: "
-                    f"{summary['total_risk']:,.0f} VND "
-                    f"({summary['risk_pct_of_capital']:.2f}% vốn)"
+                st.markdown(
+                    "**Bảng xếp hạng nghiên cứu**"
                 )
 
                 st.dataframe(
-                    summary["positions"],
+                    scanner,
                     use_container_width=True,
-                    hide_index=True
+                    hide_index=True,
                 )
 
-            except Exception as e:
-
-                st.error(
-                    f"Không đọc được danh mục: {e}"
+                st.download_button(
+                    "Xuất bảng Scanner CSV",
+                    data=scanner.to_csv(
+                        index=False
+                    ).encode("utf-8-sig"),
+                    file_name="scanner_ranking.csv",
+                    mime="text/csv",
+                    key="download_scanner",
                 )
+
+                st.caption(
+                    "Điểm tổng là thang điểm heuristic nội bộ, "
+                    "không phải xác suất tăng giá."
+                )
+
+            st.divider()
+
+            # Backtest
+            st.markdown(
+                "**Mô phỏng chiến lược trên một mã**"
+            )
+
+            sym = st.selectbox(
+                "Mã để mô phỏng",
+                list(data["symbol"].dropna().unique()),
+                key="bt_symbol",
+            )
+
+            if st.button(
+                "Chạy backtest",
+                key="run_backtest",
+            ):
+
+                bt = simple_swing_backtest(
+                    data[
+                        data["symbol"] == sym
+                    ].copy()
+                )
+
+                if "error" in bt:
+
+                    st.warning(bt["error"])
+
+                else:
+
+                    k1, k2, k3, k4 = st.columns(4)
+
+                    k1.metric(
+                        "Tổng lợi nhuận mô phỏng",
+                        f"{bt['total_return_pct']:.2f}%",
+                    )
+
+                    k2.metric(
+                        "Max Drawdown",
+                        f"{bt['max_drawdown_pct']:.2f}%",
+                    )
+
+                    k3.metric(
+                        "Số giao dịch đóng",
+                        bt["closed_trades"],
+                    )
+
+                    k4.metric(
+                        "Win rate",
+                        "—"
+                        if bt["win_rate_pct"] is None
+                        else f"{bt['win_rate_pct']:.1f}%",
+                    )
+
+                    st.json({
+                        key: value
+                        for key, value in bt.items()
+                        if key != "equity_curve"
+                    })
+
+                    st.line_chart(
+                        pd.DataFrame({
+                            "Equity mô phỏng": bt["equity_curve"]
+                        })
+                    )
+
+            st.divider()
+
+            # Danh mục
+            st.markdown(
+                "**Theo dõi danh mục (nhập CSV)**"
+            )
+
+            st.caption(
+                "Cột bắt buộc: symbol, quantity, entry_price. "
+                "Cột tùy chọn: market_price, stop_price. "
+                "Không kết nối tài khoản hay gửi lệnh."
+            )
+
+            pf = st.file_uploader(
+                "Tải CSV vị thế mô phỏng",
+                type=["csv"],
+                key="portfolio_upload",
+            )
+
+            if pf is not None:
+
+                try:
+
+                    positions = pd.read_csv(pf)
+
+                    summary = summarize_portfolio(
+                        positions,
+                        capital,
+                    )
+
+                    p1, p2, p3 = st.columns(3)
+
+                    p1.metric(
+                        "Giá trị thị trường",
+                        f"{summary['market_value']:,.0f} VND",
+                    )
+
+                    p2.metric(
+                        "Lãi/lỗ chưa thực hiện",
+                        f"{summary['unrealized_pnl']:,.0f} VND",
+                    )
+
+                    p3.metric(
+                        "Tỷ trọng vốn",
+                        f"{summary['exposure_pct']:.1f}%",
+                    )
+
+                    st.write(
+                        f"Rủi ro tới stop tham chiếu: "
+                        f"{summary['total_risk']:,.0f} VND "
+                        f"({summary['risk_pct_of_capital']:.2f}% vốn)"
+                    )
+
+                    st.dataframe(
+                        summary["positions"],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                except Exception as e:
+
+                    show_error(
+                        "Không đọc được danh mục",
+                        e,
+                    )
+
+        except Exception as e:
+
+            show_error(
+                "Lỗi Tab 4",
+                e,
+            )
 
 
 # =========================================================
@@ -827,12 +943,13 @@ with tabs[4]:
     # A. NHẬP DỮ LIỆU TRỰC TIẾP
     # -----------------------------------------------------
 
-    st.markdown("### 1. Dán dữ liệu trực tiếp")
+    st.markdown(
+        "### 1. Dán dữ liệu trực tiếp"
+    )
 
     st.caption(
-        "Bạn có thể sao chép một vùng dữ liệu từ Excel "
-        "rồi dán vào ô bên dưới. Các cột phân cách bằng "
-        "Tab sẽ được nhận diện tự động."
+        "Sao chép vùng dữ liệu từ Excel rồi dán vào ô bên dưới. "
+        "Các cột phân cách bằng Tab được nhận diện tự động."
     )
 
     pasted_text = st.text_area(
@@ -844,7 +961,7 @@ with tabs[4]:
             "2026-01-01\t100\t110\t95\t105\t1000000\n"
             "2026-01-02\t105\t115\t102\t112\t1200000"
         ),
-        key="tab5_text_input"
+        key="tab5_text_input",
     )
 
     st.session_state.tab5_paste_text = pasted_text
@@ -860,30 +977,39 @@ with tabs[4]:
             "Chấm phẩy (;)",
             "Dấu |",
         ],
-        key="tab5_delimiter"
+        key="tab5_delimiter",
     )
 
     has_header = c2.checkbox(
         "Dòng đầu là tiêu đề",
         value=True,
-        key="tab5_header"
+        key="tab5_header",
     )
 
     if delimiter_choice == "Tab":
+
         delimiter = "\t"
-    elif delimiter_choice == "Dấu phẩy (,)":
+
+    elif delimiter_choice == "Dấu phẩy (,)" :
+
         delimiter = ","
-    elif delimiter_choice == "Chấm phẩy (;)":
+
+    elif delimiter_choice == "Chấm phẩy (;)" :
+
         delimiter = ";"
+
     elif delimiter_choice == "Dấu |":
+
         delimiter = "|"
+
     else:
+
         delimiter = "Tự nhận diện"
 
     if c3.button(
         "Tách dữ liệu thành bảng",
         key="tab5_parse_button",
-        use_container_width=True
+        use_container_width=True,
     ):
 
         try:
@@ -891,12 +1017,14 @@ with tabs[4]:
             parsed = tab5_excel.parse_pasted_text(
                 pasted_text,
                 delimiter=delimiter,
-                header=has_header
+                header=has_header,
             )
 
-            st.session_state.tab5_table = parsed
+            st.session_state.tab5_table = parsed.copy()
 
             st.session_state.tab5_source_name = ""
+
+            st.session_state.tab5_old_preview = None
 
             st.session_state.tab5_status = (
                 f"Đã tách thành công "
@@ -906,8 +1034,9 @@ with tabs[4]:
 
         except Exception as e:
 
-            st.error(
-                f"Không thể tách dữ liệu: {e}"
+            show_error(
+                "Không thể tách dữ liệu",
+                e,
             )
 
     if st.session_state.tab5_status:
@@ -922,7 +1051,9 @@ with tabs[4]:
     # B. NHẬP FILE EXCEL / CSV / TXT
     # -----------------------------------------------------
 
-    st.markdown("### 2. Nhập file có sẵn")
+    st.markdown(
+        "### 2. Nhập file có sẵn"
+    )
 
     uploaded5 = st.file_uploader(
         "Chọn file Excel / CSV / TXT",
@@ -930,45 +1061,47 @@ with tabs[4]:
             "csv",
             "txt",
             "xlsx",
-            "xls"
+            "xls",
         ],
-        key="tab5_upload"
+        key="tab5_upload",
     )
 
-    if uploaded5:
+    if uploaded5 is not None:
 
         try:
-
-            sheet5 = st.text_input(
-                "Sheet TAB 5 (tên hoặc chỉ số)",
-                value="0",
-                key="tab5_sheet_name"
-            )
 
             if uploaded5.name.lower().endswith(
                 (".xlsx", ".xls")
             ):
 
-                sheet_arg = (
-                    int(sheet5)
-                    if sheet5.strip().isdigit()
-                    else sheet5.strip()
+                sheet5 = st.text_input(
+                    "Sheet TAB 5 (tên hoặc chỉ số)",
+                    value="0",
+                    key="tab5_sheet_name",
                 )
 
-                table = tab5_excel.read_table(
-                    uploaded5,
-                    sheet_name=sheet_arg
-                )
+                if sheet5.strip().isdigit():
+
+                    sheet_arg = int(sheet5.strip())
+
+                else:
+
+                    sheet_arg = sheet5.strip() or 0
 
             else:
 
-                table = tab5_excel.read_table(
-                    uploaded5
-                )
+                sheet_arg = 0
 
-            st.session_state.tab5_table = table
+            table = tab5_excel.read_table(
+                uploaded5,
+                sheet_name=sheet_arg,
+            )
+
+            st.session_state.tab5_table = table.copy()
 
             st.session_state.tab5_source_name = uploaded5.name
+
+            st.session_state.tab5_old_preview = None
 
             st.session_state.tab5_status = (
                 f"Đã đọc file {uploaded5.name}: "
@@ -981,8 +1114,9 @@ with tabs[4]:
 
         except Exception as e:
 
-            st.error(
-                f"Lỗi đọc file TAB 5: {e}"
+            show_error(
+                "Lỗi đọc file TAB 5",
+                e,
             )
 
     st.divider()
@@ -991,16 +1125,17 @@ with tabs[4]:
     # C. BẢNG DỮ LIỆU CÓ THỂ CHỈNH SỬA
     # -----------------------------------------------------
 
-    st.markdown("### 3. Bảng dữ liệu có thể chỉnh sửa")
+    st.markdown(
+        "### 3. Bảng dữ liệu có thể chỉnh sửa"
+    )
 
     table5 = st.session_state.tab5_table
 
     if table5 is not None:
 
         st.caption(
-            "Bạn có thể sửa trực tiếp từng ô, thêm dòng "
-            "hoặc xóa dòng trong bảng. Nhấn nút xác nhận "
-            "để lưu nội dung chỉnh sửa vào phiên làm việc."
+            "Có thể sửa từng ô, thêm dòng hoặc xóa dòng. "
+            "Bảng chỉ thuộc Tab 5."
         )
 
         edited_table5 = st.data_editor(
@@ -1008,23 +1143,23 @@ with tabs[4]:
             use_container_width=True,
             num_rows="dynamic",
             hide_index=True,
-            key="tab5_editor"
+            key="tab5_editor",
         )
+
+        # Bản đang hiển thị trong phiên làm việc.
+        table5 = edited_table5.copy()
 
         if st.button(
             "Xác nhận bảng đã chỉnh sửa",
             key="tab5_confirm_editor",
-            use_container_width=True
+            use_container_width=True,
         ):
 
-            st.session_state.tab5_table = edited_table5.copy()
+            st.session_state.tab5_table = table5.copy()
 
             st.success(
                 "Đã cập nhật bảng dữ liệu trong Tab 5."
             )
-
-        # Sử dụng bản đã chỉnh sửa ngay trong phiên.
-        table5 = edited_table5.copy()
 
         st.divider()
 
@@ -1032,11 +1167,13 @@ with tabs[4]:
         # D. CHUẨN HÓA VÀ KIỂM TRA
         # -------------------------------------------------
 
-        st.markdown("### 4. Chuẩn hóa và kiểm tra dữ liệu")
+        st.markdown(
+            "### 4. Chuẩn hóa và kiểm tra dữ liệu"
+        )
 
         if st.button(
             "Chuẩn hóa tên cột",
-            key="tab5_normalize_button"
+            key="tab5_normalize_button",
         ):
 
             try:
@@ -1047,7 +1184,7 @@ with tabs[4]:
                     )
                 )
 
-                st.session_state.tab5_table = normalized
+                st.session_state.tab5_table = normalized.copy()
 
                 st.success(
                     "Đã chuẩn hóa tên cột."
@@ -1057,66 +1194,98 @@ with tabs[4]:
 
                     st.write(
                         "Ánh xạ tên cột:",
-                        mapping
+                        mapping,
                     )
 
             except Exception as e:
 
-                st.error(
-                    f"Lỗi chuẩn hóa: {e}"
+                show_error(
+                    "Lỗi chuẩn hóa",
+                    e,
                 )
 
         table5 = st.session_state.tab5_table
 
         if table5 is not None:
 
-            issues = tab5_excel.validate_table(
-                table5
-            )
+            try:
 
-            if issues:
-
-                st.warning(
-                    "Các vấn đề cần kiểm tra:"
+                issues = tab5_excel.validate_table(
+                    table5
                 )
 
-                for issue in issues:
+                if issues:
 
-                    st.write("•", issue)
+                    st.warning(
+                        "Các vấn đề cần kiểm tra:"
+                    )
 
-            else:
+                    for issue in issues:
 
-                st.success(
-                    "Không phát hiện lỗi theo các quy tắc kiểm tra hiện có."
+                        st.write("•", issue)
+
+                else:
+
+                    st.success(
+                        "Không phát hiện lỗi theo các quy tắc kiểm tra hiện có."
+                    )
+
+            except Exception as e:
+
+                show_error(
+                    "Lỗi kiểm tra bảng",
+                    e,
                 )
 
         st.divider()
 
         # -------------------------------------------------
-        # E. XUẤT FILE TRỰC TIẾP
+        # E. XUẤT FILE
         # -------------------------------------------------
 
-        st.markdown("### 5. Xuất dữ liệu")
+        st.markdown(
+            "### 5. Xuất dữ liệu"
+        )
 
         col_csv, col_excel = st.columns(2)
 
-        col_csv.download_button(
-            "Tải CSV",
-            data=tab5_excel.to_csv_bytes(table5),
-            file_name="tab5_export.csv",
-            mime="text/csv",
-            key="tab5_download_csv",
-            use_container_width=True
-        )
+        try:
 
-        col_excel.download_button(
-            "Tải Excel",
-            data=tab5_excel.to_excel_bytes(table5),
-            file_name="tab5_export.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="tab5_download_excel",
-            use_container_width=True
-        )
+            csv_bytes = tab5_excel.to_csv_bytes(
+                table5
+            )
+
+            excel_bytes = tab5_excel.to_excel_bytes(
+                table5
+            )
+
+            col_csv.download_button(
+                "Tải CSV",
+                data=csv_bytes,
+                file_name="tab5_export.csv",
+                mime="text/csv",
+                key="tab5_download_csv",
+                use_container_width=True,
+            )
+
+            col_excel.download_button(
+                "Tải Excel",
+                data=excel_bytes,
+                file_name="tab5_export.xlsx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                key="tab5_download_excel",
+                use_container_width=True,
+            )
+
+        except Exception as e:
+
+            show_error(
+                "Không thể xuất file",
+                e,
+            )
 
         st.divider()
 
@@ -1124,24 +1293,26 @@ with tabs[4]:
         # F. LƯU FILE MỚI
         # -------------------------------------------------
 
-        st.markdown("### 6. Lưu thành file mới")
+        st.markdown(
+            "### 6. Lưu thành file mới"
+        )
 
         new_filename5 = st.text_input(
             "Tên file mới",
             value="du_lieu_tab5",
-            key="tab5_new_filename"
+            key="tab5_new_filename",
         )
 
         new_format5 = st.selectbox(
             "Định dạng lưu",
             ["xlsx", "csv"],
-            key="tab5_new_format"
+            key="tab5_new_format",
         )
 
         if st.button(
             "Lưu file mới",
             key="tab5_save_new",
-            use_container_width=True
+            use_container_width=True,
         ):
 
             try:
@@ -1149,7 +1320,7 @@ with tabs[4]:
                 saved_path = tab5_excel.save_new_file(
                     table5,
                     new_filename5,
-                    new_format5
+                    new_format5,
                 )
 
                 st.success(
@@ -1158,8 +1329,9 @@ with tabs[4]:
 
             except Exception as e:
 
-                st.error(
-                    f"Không thể lưu file mới: {e}"
+                show_error(
+                    "Không thể lưu file mới",
+                    e,
                 )
 
         st.divider()
@@ -1168,29 +1340,39 @@ with tabs[4]:
         # G. CẬP NHẬT FILE CŨ
         # -------------------------------------------------
 
-        st.markdown("### 7. Cập nhật file đã lưu")
+        st.markdown(
+            "### 7. Cập nhật file đã lưu"
+        )
 
-        saved_files5 = tab5_excel.list_saved_files()
+        try:
+
+            saved_files5 = tab5_excel.list_saved_files()
+
+        except Exception as e:
+
+            saved_files5 = []
+
+            show_error(
+                "Không thể đọc danh sách file Tab 5",
+                e,
+            )
 
         if saved_files5:
 
             old_file5 = st.selectbox(
                 "Chọn file cần cập nhật",
                 saved_files5,
-                key="tab5_old_file"
+                key="tab5_old_file",
             )
 
             st.caption(
-                "Trước khi cập nhật, chương trình tạo bản "
-                "sao lưu file cũ. Khi trùng khóa, dữ liệu "
-                "mới được ưu tiên."
+                "Chương trình tạo bản sao lưu trước khi cập nhật. "
+                "Khi trùng khóa, dữ liệu mới được ưu tiên."
             )
-
-            old_df5 = None
 
             if st.button(
                 "Xem cấu trúc file cũ",
-                key="tab5_preview_old"
+                key="tab5_preview_old",
             ):
 
                 try:
@@ -1199,55 +1381,71 @@ with tabs[4]:
                         old_file5
                     )
 
-                    st.session_state[
-                        "tab5_old_preview"
-                    ] = old_df5
+                    st.session_state.tab5_old_preview = old_df5.copy()
 
                 except Exception as e:
 
-                    st.error(
-                        f"Không đọc được file cũ: {e}"
+                    show_error(
+                        "Không đọc được file cũ",
+                        e,
                     )
 
-            if st.session_state.get(
-                "tab5_old_preview"
-            ) is not None:
+            if st.session_state.tab5_old_preview is not None:
 
                 st.dataframe(
-                    st.session_state["tab5_old_preview"],
+                    st.session_state.tab5_old_preview,
                     use_container_width=True,
-                    hide_index=True
+                    hide_index=True,
                 )
 
-            key_options = list(
-                set(table5.columns)
-                & set(
-                    tab5_excel.load_saved_file(
-                        old_file5
-                    ).columns
+            try:
+
+                old_data_for_keys = tab5_excel.load_saved_file(
+                    old_file5
                 )
-            )
+
+                key_options = [
+                    column
+                    for column in table5.columns
+                    if column in old_data_for_keys.columns
+                ]
+
+            except Exception as e:
+
+                key_options = []
+
+                show_error(
+                    "Không thể xác định cột khóa",
+                    e,
+                )
 
             if key_options:
+
+                default_keys = [
+                    column
+                    for column in ["symbol", "date"]
+                    if column in key_options
+                ]
 
                 selected_keys5 = st.multiselect(
                     "Chọn cột khóa để nhận diện dòng trùng",
                     key_options,
-                    default=[
-                        c for c in ["symbol", "date"]
-                        if c in key_options
-                    ],
-                    key="tab5_update_keys"
+                    default=default_keys,
+                    key="tab5_update_keys",
                 )
 
             else:
 
                 selected_keys5 = []
 
+                st.warning(
+                    "Không tìm thấy cột chung giữa file mới và file cũ."
+                )
+
             if st.button(
                 "Cập nhật file cũ",
                 key="tab5_update_old",
-                use_container_width=True
+                use_container_width=True,
             ):
 
                 try:
@@ -1258,12 +1456,14 @@ with tabs[4]:
                             "Bạn cần chọn ít nhất một cột khóa."
                         )
 
-                    merged5, duplicate_count5, backup5 = (
-                        tab5_excel.update_saved_file(
-                            table5,
-                            old_file5,
-                            keys=selected_keys5
-                        )
+                    (
+                        merged5,
+                        duplicate_count5,
+                        backup5,
+                    ) = tab5_excel.update_saved_file(
+                        table5,
+                        old_file5,
+                        keys=selected_keys5,
                     )
 
                     st.success(
@@ -1276,13 +1476,14 @@ with tabs[4]:
                     st.dataframe(
                         merged5,
                         use_container_width=True,
-                        hide_index=True
+                        hide_index=True,
                     )
 
                 except Exception as e:
 
-                    st.error(
-                        f"Không thể cập nhật file: {e}"
+                    show_error(
+                        "Không thể cập nhật file",
+                        e,
                     )
 
         else:
@@ -1316,7 +1517,7 @@ with tabs[5]:
 
     st.caption(
         "Tổng hợp chỉ báo, vùng giá và kế hoạch tham chiếu "
-        "từ các module hiện có; không tạo chức năng mua/bán trùng lặp."
+        "từ các module hiện có."
     )
 
     data = st.session_state.market_data
@@ -1329,273 +1530,317 @@ with tabs[5]:
 
     else:
 
-        results = st.session_state.analysis
+        try:
 
-        if results is None:
+            results = get_analysis_results(data)
 
-            results = analyze_universe(data)
+            if not results:
 
-            st.session_state.analysis = results
-
-        symbols = list(results.keys())
-
-        selected_summary = st.selectbox(
-            "Chọn mã cần tổng hợp",
-            symbols,
-            key="summary_symbol"
-        )
-
-        enriched_summary, decision_summary = (
-            results[selected_summary]
-        )
-
-        sr_summary = find_support_resistance(
-            enriched_summary
-        )
-
-        report = summarize_indicators(
-            enriched_summary,
-            decision_summary,
-            sr_summary
-        )
-
-        if report.get("score") is not None:
-
-            m1, m2, m3, m4, m5 = st.columns(5)
-
-            m1.metric(
-                "Điểm tổng hợp",
-                f"{report['score']:.1f}/100"
-            )
-
-            m2.metric(
-                "Kết luận kỹ thuật",
-                report["label"]
-            )
-
-            m3.metric(
-                "Độ phủ chỉ báo",
-                f"{report.get('coverage_pct', 0):.0f}%"
-            )
-
-            m4.metric(
-                "Xu hướng",
-                decision_summary.get("trend", "Chưa rõ")
-            )
-
-            m5.metric(
-                "Động lượng",
-                decision_summary.get("momentum", "Chưa rõ")
-            )
-
-            regime_summary = assess_market_regime(data)
-
-            st.caption(
-                f"Bối cảnh thị trường chung: "
-                f"{regime_summary.get('regime', 'Chưa xác định')} · "
-                + " ".join(
-                    regime_summary.get("reasons", [])
-                )
-            )
-
-            st.markdown(
-                "### 1. Đánh giá theo nhóm chỉ báo"
-            )
-
-            group_table = pd.DataFrame(
-                report["groups"]
-            )[
-                [
-                    "name",
-                    "signal",
-                    "score",
-                    "available",
-                    "detail"
-                ]
-            ]
-
-            st.dataframe(
-                group_table,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            left, right = st.columns(2)
-
-            with left:
-
-                st.markdown(
-                    "**Các dữ kiện ủng hộ kết luận**"
+                st.warning(
+                    "Chưa có kết quả phân tích."
                 )
 
-                for reason in report.get("reasons", []):
+            else:
 
-                    st.write("•", reason)
+                symbols = list(results.keys())
 
-            with right:
-
-                st.markdown(
-                    "**Tín hiệu mâu thuẫn cần lưu ý**"
+                selected_summary = st.selectbox(
+                    "Chọn mã cần tổng hợp",
+                    symbols,
+                    key="summary_symbol",
                 )
 
-                if report.get("conflicts"):
+                (
+                    enriched_summary,
+                    decision_summary,
+                ) = results[selected_summary]
 
-                    for conflict in report["conflicts"]:
+                sr_summary = find_support_resistance(
+                    enriched_summary
+                )
 
-                        st.warning(conflict)
+                report = summarize_indicators(
+                    enriched_summary,
+                    decision_summary,
+                    sr_summary,
+                )
+
+                if report.get("score") is not None:
+
+                    m1, m2, m3, m4, m5 = st.columns(5)
+
+                    m1.metric(
+                        "Điểm tổng hợp",
+                        f"{report['score']:.1f}/100",
+                    )
+
+                    m2.metric(
+                        "Kết luận kỹ thuật",
+                        report["label"],
+                    )
+
+                    m3.metric(
+                        "Độ phủ chỉ báo",
+                        f"{report.get('coverage_pct', 0):.0f}%",
+                    )
+
+                    m4.metric(
+                        "Xu hướng",
+                        decision_summary.get(
+                            "trend",
+                            "Chưa rõ",
+                        ),
+                    )
+
+                    m5.metric(
+                        "Động lượng",
+                        decision_summary.get(
+                            "momentum",
+                            "Chưa rõ",
+                        ),
+                    )
+
+                    regime_summary = assess_market_regime(
+                        data
+                    )
+
+                    st.caption(
+                        f"Bối cảnh thị trường chung: "
+                        f"{regime_summary.get('regime', 'Chưa xác định')} · "
+                        + " ".join(
+                            regime_summary.get("reasons", [])
+                        )
+                    )
+
+                    # -------------------------------------
+                    # NHÓM CHỈ BÁO
+                    # -------------------------------------
+
+                    st.markdown(
+                        "### 1. Đánh giá theo nhóm chỉ báo"
+                    )
+
+                    group_table = pd.DataFrame(
+                        report["groups"]
+                    )
+
+                    group_columns = [
+                        column
+                        for column in [
+                            "name",
+                            "signal",
+                            "score",
+                            "available",
+                            "detail",
+                        ]
+                        if column in group_table.columns
+                    ]
+
+                    st.dataframe(
+                        group_table[group_columns],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    left, right = st.columns(2)
+
+                    with left:
+
+                        st.markdown(
+                            "**Các dữ kiện ủng hộ kết luận**"
+                        )
+
+                        for reason in report.get(
+                            "reasons",
+                            [],
+                        ):
+
+                            st.write("•", reason)
+
+                    with right:
+
+                        st.markdown(
+                            "**Tín hiệu mâu thuẫn cần lưu ý**"
+                        )
+
+                        conflicts = report.get(
+                            "conflicts",
+                            [],
+                        )
+
+                        if conflicts:
+
+                            for conflict in conflicts:
+
+                                st.warning(conflict)
+
+                        else:
+
+                            st.success(
+                                "Chưa phát hiện mâu thuẫn lớn "
+                                "trong các nhóm chỉ báo đủ dữ liệu."
+                            )
+
+                    # -------------------------------------
+                    # VÙNG GIÁ
+                    # -------------------------------------
+
+                    st.markdown(
+                        "### 2. Bản đồ vùng giá"
+                    )
+
+                    plan = report.get("plan", {})
+
+                    sr = report.get(
+                        "support_resistance",
+                        {},
+                    )
+
+                    pcols = st.columns(4)
+
+                    pcols[0].metric(
+                        "Giá đóng cửa",
+                        safe_number(report.get("close")),
+                    )
+
+                    pcols[1].metric(
+                        "Hỗ trợ gần",
+                        safe_number(sr.get("support")),
+                    )
+
+                    pcols[2].metric(
+                        "Kháng cự gần",
+                        safe_number(sr.get("resistance")),
+                    )
+
+                    pcols[3].metric(
+                        "Giá xác nhận tham chiếu",
+                        safe_number(
+                            plan.get("confirmation_price")
+                        ),
+                    )
+
+                    st.caption(
+                        plan.get("confirmation_note", "")
+                    )
+
+                    if (
+                        sr.get("support") is not None
+                        and sr.get("resistance") is not None
+                    ):
+
+                        st.write(
+                            f"Khoảng cách tới hỗ trợ: "
+                            f"**{safe_number(sr.get('distance_to_support_pct'))}%** "
+                            f"· Khoảng cách tới kháng cự: "
+                            f"**{safe_number(sr.get('distance_to_resistance_pct'))}%**"
+                        )
+
+                        st.caption(
+                            f"Số lần phản ứng pivot tham chiếu — "
+                            f"hỗ trợ: {sr.get('support_touches', 0)} · "
+                            f"kháng cự: {sr.get('resistance_touches', 0)}. "
+                            f"{sr.get('method', '')}"
+                        )
+
+                    # -------------------------------------
+                    # KỊCH BẢN GIÁ
+                    # -------------------------------------
+
+                    st.markdown(
+                        "### 3. Kịch bản giá tham chiếu"
+                    )
+
+                    plan_table = pd.DataFrame([
+                        {
+                            "Mốc giá": "Vùng mua thấp (module cũ)",
+                            "Giá": plan.get("buy_zone_low"),
+                        },
+                        {
+                            "Mốc giá": "Vùng mua cao (module cũ)",
+                            "Giá": plan.get("buy_zone_high"),
+                        },
+                        {
+                            "Mốc giá": "Giá xác nhận theo dõi",
+                            "Giá": plan.get("confirmation_price"),
+                        },
+                        {
+                            "Mốc giá": "Chốt lời mục tiêu 1",
+                            "Giá": plan.get("target_1"),
+                        },
+                        {
+                            "Mốc giá": "Chốt lời mục tiêu 2",
+                            "Giá": plan.get("target_2"),
+                        },
+                        {
+                            "Mốc giá": "Cắt lỗ tham chiếu",
+                            "Giá": plan.get("stop_loss"),
+                        },
+                    ])
+
+                    plan_table["Giá"] = plan_table["Giá"].map(
+                        lambda value:
+                            "Chưa có dữ liệu"
+                            if value is None or pd.isna(value)
+                            else f"{float(value):,.2f}"
+                    )
+
+                    st.dataframe(
+                        plan_table,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    st.write(
+                        "**Tỷ lệ R:R từ decision_engine:**",
+                        "Chưa xác định"
+                        if plan.get("reward_risk") is None
+                        else f"{float(plan['reward_risk']):.2f}",
+                    )
+
+                    st.caption(
+                        plan.get("note", "")
+                    )
+
+                    # -------------------------------------
+                    # KẾT LUẬN
+                    # -------------------------------------
+
+                    st.markdown(
+                        "### 4. Kết luận và điều kiện theo dõi"
+                    )
+
+                    st.info(
+                        f"**Kết luận từ bộ máy quyết định hiện tại:** "
+                        f"{report.get('decision_engine', 'Chưa có')}.\n\n"
+                        f"**Kết luận tổng hợp:** {report['label']}."
+                    )
+
+                    st.write(
+                        "**Điều kiện xác nhận:** theo dõi giá đóng cửa "
+                        "so với vùng xác nhận tham chiếu, đồng thời "
+                        "đánh giá khối lượng và động lượng."
+                    )
+
+                    st.write(
+                        "**Điều kiện vô hiệu:** đánh giá lại kịch bản "
+                        "nếu giá đóng cửa xuyên thủng vùng hỗ trợ "
+                        "hoặc chạm ngưỡng rủi ro do module hiện tại tính toán."
+                    )
+
+                    st.caption(
+                        report.get("disclaimer", "")
+                    )
 
                 else:
 
-                    st.success(
-                        "Chưa phát hiện mâu thuẫn lớn trong "
-                        "các nhóm chỉ báo đang đủ dữ liệu."
+                    st.warning(
+                        "Chưa đủ dữ liệu để tổng hợp chỉ báo cho mã này."
                     )
 
-            st.markdown(
-                "### 2. Bản đồ vùng giá"
-            )
+        except Exception as e:
 
-            p = report.get("plan", {})
-
-            sr = report.get(
-                "support_resistance",
-                {}
-            )
-
-            pcols = st.columns(4)
-
-            pcols[0].metric(
-                "Giá đóng cửa",
-                f"{report['close']:,.2f}"
-            )
-
-            pcols[1].metric(
-                "Hỗ trợ gần",
-                "—"
-                if sr.get("support") is None
-                else f"{sr['support']:,.2f}"
-            )
-
-            pcols[2].metric(
-                "Kháng cự gần",
-                "—"
-                if sr.get("resistance") is None
-                else f"{sr['resistance']:,.2f}"
-            )
-
-            pcols[3].metric(
-                "Giá xác nhận tham chiếu",
-                "—"
-                if p.get("confirmation_price") is None
-                else f"{p['confirmation_price']:,.2f}"
-            )
-
-            st.caption(
-                p.get("confirmation_note", "")
-            )
-
-            if (
-                sr.get("support") is not None
-                and sr.get("resistance") is not None
-            ):
-
-                st.write(
-                    f"Khoảng cách tới hỗ trợ: "
-                    f"**{sr.get('distance_to_support_pct', float('nan')):.2f}%** "
-                    f"· Khoảng cách tới kháng cự: "
-                    f"**{sr.get('distance_to_resistance_pct', float('nan')):.2f}%**"
-                )
-
-                st.caption(
-                    f"Số lần phản ứng pivot tham chiếu — "
-                    f"hỗ trợ: {sr.get('support_touches', 0)} · "
-                    f"kháng cự: {sr.get('resistance_touches', 0)}. "
-                    f"{sr.get('method', '')}"
-                )
-
-            st.markdown(
-                "### 3. Kịch bản giá tham chiếu"
-            )
-
-            plan_table = pd.DataFrame([
-                {
-                    "Mốc giá": "Vùng mua thấp (module cũ)",
-                    "Giá": p.get("buy_zone_low")
-                },
-                {
-                    "Mốc giá": "Vùng mua cao (module cũ)",
-                    "Giá": p.get("buy_zone_high")
-                },
-                {
-                    "Mốc giá": "Giá xác nhận theo dõi",
-                    "Giá": p.get("confirmation_price")
-                },
-                {
-                    "Mốc giá": "Chốt lời mục tiêu 1",
-                    "Giá": p.get("target_1")
-                },
-                {
-                    "Mốc giá": "Chốt lời mục tiêu 2",
-                    "Giá": p.get("target_2")
-                },
-                {
-                    "Mốc giá": "Cắt lỗ tham chiếu",
-                    "Giá": p.get("stop_loss")
-                },
-            ])
-
-            plan_table["Giá"] = plan_table["Giá"].map(
-                lambda v:
-                    "Chưa có dữ liệu"
-                    if v is None or pd.isna(v)
-                    else f"{float(v):,.2f}"
-            )
-
-            st.dataframe(
-                plan_table,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.write(
-                "**Tỷ lệ R:R từ decision_engine:**",
-                "Chưa xác định"
-                if p.get("reward_risk") is None
-                else f"{float(p['reward_risk']):.2f}"
-            )
-
-            st.caption(
-                p.get("note", "")
-            )
-
-            st.markdown(
-                "### 4. Kết luận và điều kiện theo dõi"
-            )
-
-            st.info(
-                f"**Kết luận từ bộ máy quyết định hiện tại:** "
-                f"{report.get('decision_engine', 'Chưa có')}.\n\n"
-                f"**Kết luận tổng hợp:** {report['label']}."
-            )
-
-            st.write(
-                "**Điều kiện xác nhận:** chờ giá đóng cửa "
-                "vượt vùng xác nhận tham chiếu, đồng thời "
-                "khối lượng và động lượng không suy yếu rõ rệt."
-            )
-
-            st.write(
-                "**Điều kiện vô hiệu:** đánh giá lại kịch bản "
-                "nếu giá đóng cửa xuyên thủng vùng hỗ trợ "
-                "hoặc chạm ngưỡng cắt lỗ do module hiện tại tính toán."
-            )
-
-            st.caption(
-                report.get("disclaimer", "")
-            )
-
-        else:
-
-            st.warning(
-                "Chưa đủ dữ liệu để tổng hợp chỉ báo cho mã này."
+            show_error(
+                "Lỗi Trung tâm tổng hợp",
+                e,
             )
