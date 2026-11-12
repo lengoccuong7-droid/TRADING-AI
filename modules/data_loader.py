@@ -112,3 +112,29 @@ def load_market_file(uploaded_file, sheet_name=0, symbol_hint=None):
     raw = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
     frame = _read_file(uploaded_file.name, raw, sheet_name)
     return normalize_ohlcv(frame, symbol_hint=symbol_hint)
+    def prepare_market_data(df):
+    """
+    Chuẩn hóa dữ liệu OHLCV trước khi đưa vào các module phân tích.
+    Không ghi đè dữ liệu gốc.
+    """
+    if df is None:
+        raise ValueError("Không có dữ liệu đầu vào.")
+
+    if df.empty:
+        raise ValueError("Bảng dữ liệu đang trống.")
+
+    data = df.copy()
+
+    # Chuẩn hóa tên cột
+    data, _ = normalize_columns(data)
+
+    # Kiểm tra các cột bắt buộc
+    check_required_columns(data)
+
+    # Chuyển đổi ngày tháng
+    data = convert_date_column(data)
+
+    # Chuyển đổi dữ liệu số
+    data = convert_numeric_columns(data)
+
+    return data
