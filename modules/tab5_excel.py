@@ -1,38 +1,43 @@
 
 """
-TAB 5 - TRUNG TÂM QUẢN LÝ DỮ LIỆU EXCEL / CSV
+TAB 5 - QUẢN LÝ DỮ LIỆU EXCEL / CSV ĐỘC LẬP
 
 Chức năng:
-- Đọc Excel, CSV, TXT.
-- Tự nhận diện dấu phân cách CSV/TXT.
-- Tự nhận diện tên cột tiếng Việt và tiếng Anh.
-- Chuẩn hóa dữ liệu OHLCV khi đủ cột.
-- Kiểm tra lỗi dữ liệu và dòng trùng.
-- Lưu thành file mới, không ghi đè file cũ.
-- Cập nhật file cũ, tạo bản sao lưu trước khi ghi.
-- Xuất CSV UTF-8-SIG và Excel XLSX.
+1. Nhập dữ liệu từ Excel, CSV, TXT.
+2. Dán dữ liệu trực tiếp và tự động tách thành bảng.
+3. Chuẩn hóa tên cột.
+4. Kiểm tra dữ liệu OHLCV.
+5. Lưu file mới.
+6. Cập nhật file cũ và loại bỏ dòng trùng.
+7. Tạo bản sao lưu trước khi cập nhật.
+8. Xuất Excel / CSV.
 
 Lưu ý:
-- Không sửa file gốc người dùng tải lên.
-- Không thay đổi các module khác của BOT TRADER.
+- Module này độc lập với market_data.
+- Không tự động ghi dữ liệu vào Tab 1.
+- Không tác động đến các module phân tích khác.
 """
 
-from pathlib import Path
+from __future__ import annotations
+
 import csv
 import io
 import re
 import unicodedata
+from pathlib import Path
 
 import pandas as pd
 
 
 # =========================================================
-# 1. THƯ MỤC LƯU TRỮ
+# 1. THƯ MỤC LƯU FILE RIÊNG CỦA TAB 5
 # =========================================================
 
-DATA_DIR = Path("data") / "tab5_saved"
-
-SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".txt"}
+DATA_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "data"
+    / "tab5_saved"
+)
 
 
 # =========================================================
@@ -41,342 +46,490 @@ SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".txt"}
 
 ALIASES = {
     "date": [
-        "date", "datetime", "time", "trading_date",
-        "ngay", "ngày", "ngay_giao_dich",
-        "ngày_giao_dịch", "tradingdate"
+        "date",
+        "datetime",
+        "time",
+        "ngay",
+        "ngay giao dich",
+        "ngay gd",
+        "trading date",
+        "tradingdate",
     ],
 
     "symbol": [
-        "symbol", "ticker", "stock", "code",
-        "ma", "mã", "ma_ck", "mã_ck",
-        "ma_co_phieu", "mã_cổ_phiếu",
-        "stock_code", "stock_symbol"
+        "symbol",
+        "ticker",
+        "ma",
+        "ma co phieu",
+        "stock",
+        "code",
     ],
 
     "open": [
-        "open", "o", "gia_mo_cua",
-        "giá_mở_cửa", "opening_price"
+        "open",
+        "o",
+        "mo cua",
+        "gia mo cua",
+        "gia mo cua vnd",
+        "opening price",
     ],
 
     "high": [
-        "high", "h", "gia_cao_nhat",
-        "giá_cao_nhất", "highest_price"
+        "high",
+        "h",
+        "cao nhat",
+        "gia cao nhat",
+        "highest",
+        "highest price",
     ],
 
     "low": [
-        "low", "l", "gia_thap_nhat",
-        "giá_thấp_nhất", "lowest_price"
+        "low",
+        "l",
+        "thap nhat",
+        "gia thap nhat",
+        "lowest",
+        "lowest price",
     ],
 
     "close": [
-        "close", "c", "adj_close", "price",
-        "gia_dong_cua", "giá_đóng_cửa",
-        "closing_price", "last_price"
+        "close",
+        "c",
+        "dong cua",
+        "gia dong cua",
+        "gia ket phien",
+        "closing price",
+        "last price",
     ],
 
     "volume": [
-        "volume", "vol", "kl", "khoi_luong",
-        "khối_lượng", "khoi_luong_giao_dich",
-        "trading_volume"
+        "volume",
+        "vol",
+        "kl",
+        "khoi luong",
+        "khoi luong giao dich",
+        "tong khoi luong",
+        "trading volume",
     ],
 }
 
 
 # =========================================================
-# 3. HÀM HỖ TRỢ
+# 3. CHUẨN HÓA CHUỖI
 # =========================================================
 
-def _clean_name(value):
+def _norm(value: object) -> str:
     """
     Chuẩn hóa tên cột:
-    - Chữ thường.
+    - Chuyển chữ thường.
     - Bỏ dấu tiếng Việt.
-    - Khoảng trắng thành dấu gạch dưới.
     - Bỏ ký tự đặc biệt.
+    - Chuẩn hóa khoảng trắng.
     """
 
-    value = str(value).strip().lower()
-    value = unicodedata.normalize("NFKD", value)
-
-    value = "".join(
-        char for char in value
-        if not unicodedata.combining(char)
+    text = unicodedata.normalize(
+        "NFKD",
+        str(value).strip().lower()
     )
 
-    value = value.replace("đ", "d")
-    value = value.replace(" ", "_")
-    value = value.replace("-", "_")
+    text = "".join(
+        ch for ch in text
+        if not unicodedata.combining(ch)
+    )
 
-    value = re.sub(r"[^\w]", "", value)
-    value = re.sub(r"_+", "_", value)
+    text = text.replace("đ", "d")
 
-    return value.strip("_")
+    return re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        text
+    ).strip()
 
 
-def _safe_filename(filename):
+def _safe_filename(filename: str) -> str:
     """
-    Chỉ lấy tên file, không cho phép đường dẫn bên ngoài
-    thư mục lưu trữ Tab 5.
+    Làm sạch tên file để tránh đường dẫn không an toàn.
     """
 
     name = Path(str(filename)).name.strip()
 
-    if not name or name in {".", ".."}:
+    name = re.sub(
+        r"[^\w\-.() ]+",
+        "_",
+        name,
+        flags=re.UNICODE
+    )
+
+    name = re.sub(
+        r"\s+",
+        "_",
+        name
+    ).strip("._")
+
+    if not name:
         raise ValueError("Tên file không hợp lệ.")
 
     return name
 
 
-def _get_saved_path(filename):
-    """Tạo đường dẫn an toàn tới file trong kho Tab 5."""
+def _path_for(filename: str) -> Path:
+    """
+    Chỉ cho phép thao tác file bên trong thư mục Tab 5.
+    """
 
-    safe_name = _safe_filename(filename)
-    path = DATA_DIR / safe_name
+    name = _safe_filename(filename)
 
-    if path.suffix.lower() not in {".csv", ".xlsx"}:
-        raise ValueError("Kho Tab 5 chỉ hỗ trợ file CSV và XLSX.")
+    root = DATA_DIR.resolve()
+    path = (DATA_DIR / name).resolve()
+
+    if path.parent != root:
+        raise ValueError("Đường dẫn file không hợp lệ.")
 
     return path
 
 
-def _read_csv_bytes(raw):
-    """
-    Đọc CSV/TXT:
-    - Tự nhận diện dấu phân cách.
-    - Thử các bảng mã phổ biến.
-    - Giữ nguyên dữ liệu dạng bảng.
-    """
-
-    if not raw:
-        raise ValueError("File đang trống.")
-
-    separator = detect_separator(raw)
-
-    encodings = [
-        "utf-8-sig",
-        "utf-8",
-        "cp1258",
-        "latin1"
-    ]
-
-    last_error = None
-
-    for encoding in encodings:
-        try:
-            return pd.read_csv(
-                io.BytesIO(raw),
-                sep=separator,
-                encoding=encoding,
-                engine="python"
-            )
-        except Exception as exc:
-            last_error = exc
-
-    raise ValueError(
-        f"Không đọc được CSV/TXT. Chi tiết: {last_error}"
-    )
-
-
-def _numeric_series(series):
-    """
-    Chuyển cột số về dạng numeric.
-    Không tự thay giá trị lỗi bằng 0.
-    """
-
-    text = series.astype(str).str.strip()
-
-    text = text.replace({
-        "": None,
-        "nan": None,
-        "None": None,
-        "NaN": None,
-        "null": None,
-        "NULL": None,
-        "-": None
-    })
-
-    # Loại bỏ khoảng trắng và dấu phân cách hàng nghìn dạng dấu phẩy.
-    text = text.str.replace(" ", "", regex=False)
-    text = text.str.replace(",", "", regex=False)
-
-    return pd.to_numeric(text, errors="coerce")
-
-
 # =========================================================
-# 4. NHẬN DIỆN DẤU PHÂN CÁCH
+# 4. TỰ NHẬN DIỆN DẤU PHÂN CÁCH
 # =========================================================
 
-def detect_separator(raw):
-    """Tự nhận diện dấu phân cách CSV/TXT."""
+def detect_separator(text: str) -> str:
+    """
+    Nhận diện:
+    - Tab
+    - Dấu phẩy
+    - Dấu chấm phẩy
+    - Dấu |
+    - Khoảng trắng
+    """
 
-    if isinstance(raw, bytes):
-        sample = raw[:20000].decode(
-            "utf-8-sig",
-            errors="replace"
-        )
-    else:
-        sample = str(raw)[:20000]
+    sample = "\n".join(
+        line for line in text.splitlines()
+        if line.strip()
+    )[:12000]
+
+    if not sample:
+        raise ValueError("Không có dữ liệu để phân tách.")
 
     try:
         dialect = csv.Sniffer().sniff(
             sample,
-            delimiters=",;\t|"
+            delimiters="\t,;|"
         )
+
         return dialect.delimiter
-    except Exception:
-        pass
 
-    candidates = [",", ";", "\t", "|"]
+    except csv.Error:
 
-    lines = [
-        line for line in sample.splitlines()
-        if line.strip()
-    ][:20]
+        counts = {
+            sep: sample.count(sep)
+            for sep in ("\t", ";", "|", ",")
+        }
 
-    if not lines:
-        return ","
+        best = max(
+            counts,
+            key=counts.get
+        )
 
-    scores = {}
+        if counts[best] > 0:
+            return best
 
-    for separator in candidates:
-        counts = [
-            line.count(separator)
-            for line in lines
+        return "whitespace"
+
+
+# =========================================================
+# 5. ĐỌC DỮ LIỆU DÁN TRỰC TIẾP
+# =========================================================
+
+def parse_pasted_text(
+    text: str,
+    delimiter: str = "Tự nhận diện",
+    header: bool = True
+) -> pd.DataFrame:
+
+    """
+    Đọc dữ liệu người dùng dán trực tiếp.
+
+    Ví dụ dữ liệu từ Excel:
+
+    Date    Open    High    Low    Close    Volume
+    2026-01-01    100    110    95    105    1000000
+
+    Tự động tách hàng và cột.
+    """
+
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Ô nhập dữ liệu đang trống.")
+
+    if delimiter == "Tự nhận diện":
+        sep = detect_separator(text)
+    else:
+        sep = delimiter
+
+    source = io.StringIO(text.strip())
+
+    if sep == "whitespace":
+
+        df = pd.read_csv(
+            source,
+            sep=r"\s+",
+            header=0 if header else None,
+            engine="python",
+            dtype=object
+        )
+
+    else:
+
+        df = pd.read_csv(
+            source,
+            sep=sep,
+            header=0 if header else None,
+            engine="python",
+            dtype=object
+        )
+
+    if df.empty or len(df.columns) == 0:
+        raise ValueError(
+            "Không tách được dữ liệu thành bảng. "
+            "Hãy kiểm tra dấu phân cách."
+        )
+
+    if not header:
+
+        df.columns = [
+            f"Cột_{i + 1}"
+            for i in range(len(df.columns))
         ]
 
-        positive = [count for count in counts if count > 0]
-
-        scores[separator] = (
-            len(positive),
-            sum(positive)
-        )
-
-    best = max(scores, key=scores.get)
-
-    if scores[best][0] == 0:
-        return ","
-
-    return best
+    return df
 
 
 # =========================================================
-# 5. ĐỌC FILE
+# 6. ĐỌC CSV / TXT
 # =========================================================
 
-def read_table(uploaded_file, sheet_name=0):
-    """
-    Đọc Excel, CSV hoặc TXT.
+def _read_csv_bytes(raw: bytes) -> pd.DataFrame:
 
-    Tương thích với cách gọi hiện tại:
-        tab5_excel.read_table(uploaded5)
-    """
+    errors = []
 
-    filename = getattr(uploaded_file, "name", "")
+    for encoding in (
+        "utf-8-sig",
+        "utf-8",
+        "cp1258",
+        "latin1"
+    ):
 
-    if not filename:
-        raise ValueError("Không xác định được tên file.")
-
-    extension = Path(filename).suffix.lower()
-
-    raw = uploaded_file.getvalue()
-
-    if extension in {".csv", ".txt"}:
-        return _read_csv_bytes(raw)
-
-    if extension in {".xlsx", ".xls"}:
         try:
-            return pd.read_excel(
-                io.BytesIO(raw),
-                sheet_name=sheet_name
+
+            text = raw.decode(encoding)
+
+            sep = detect_separator(text)
+
+            if sep == "whitespace":
+
+                return pd.read_csv(
+                    io.StringIO(text),
+                    sep=r"\s+",
+                    engine="python",
+                    dtype=object
+                )
+
+            return pd.read_csv(
+                io.StringIO(text),
+                sep=sep,
+                engine="python",
+                dtype=object
             )
-        except ImportError as exc:
-            raise ValueError(
-                "Thiếu thư viện đọc Excel. "
-                "Hãy kiểm tra openpyxl hoặc xlrd trong requirements.txt."
-            ) from exc
+
+        except Exception as exc:
+
+            errors.append(str(exc))
 
     raise ValueError(
-        "Định dạng không được hỗ trợ. "
-        "Chỉ nhận CSV, TXT, XLSX và XLS."
+        "Không đọc được CSV/TXT. "
+        + (errors[-1] if errors else "")
     )
 
 
 # =========================================================
-# 6. CHUẨN HÓA TÊN CỘT
+# 7. ĐỌC FILE EXCEL / CSV / TXT
 # =========================================================
 
-def normalize_columns(df):
-    """
-    Nhận diện tên cột tiếng Việt/Anh.
+def read_table(uploaded_file, sheet_name=0) -> pd.DataFrame:
 
-    Trả về:
-        normalized_df, mapping
+    name = str(uploaded_file.name).lower()
 
-    Giữ nguyên tên các cột không nhận diện được.
-    """
+    raw = (
+        uploaded_file.getvalue()
+        if hasattr(uploaded_file, "getvalue")
+        else uploaded_file.read()
+    )
 
-    if df is None:
-        raise ValueError("Không có dữ liệu để chuẩn hóa.")
+    if name.endswith((".csv", ".txt")):
 
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("Dữ liệu đầu vào phải là pandas DataFrame.")
+        return _read_csv_bytes(raw)
 
-    if df.empty and len(df.columns) == 0:
-        raise ValueError("File không có cột dữ liệu.")
+    if name.endswith((".xlsx", ".xls")):
 
-    result = df.copy()
+        return pd.read_excel(
+            io.BytesIO(raw),
+            sheet_name=sheet_name,
+            dtype=object
+        )
+
+    raise ValueError(
+        "Tab 5 hỗ trợ CSV, TXT, XLSX và XLS."
+    )
+
+
+# =========================================================
+# 8. CHUẨN HÓA TÊN CỘT
+# =========================================================
+
+def normalize_columns(df: pd.DataFrame):
+
+    if df is None or df.empty:
+        raise ValueError("Bảng không có dữ liệu.")
+
+    rename = {}
     mapping = {}
 
-    alias_lookup = {}
+    normalized = {
+        _norm(col): col
+        for col in df.columns
+    }
 
-    for standard_name, aliases in ALIASES.items():
-        for alias in aliases:
-            alias_lookup[_clean_name(alias)] = standard_name
+    for target, aliases in ALIASES.items():
 
-    for column in result.columns:
-        clean = _clean_name(column)
+        candidates = {
+            _norm(target),
+            *(_norm(a) for a in aliases)
+        }
 
-        if clean in alias_lookup:
-            mapping[column] = alias_lookup[clean]
+        found = next(
+            (
+                normalized[a]
+                for a in candidates
+                if a in normalized
+            ),
+            None
+        )
 
-    result = result.rename(columns=mapping)
+        if found is not None and found != target:
 
-    # Nếu hai cột cùng được nhận diện thành một tên chuẩn,
-    # giữ cột có dữ liệu trước, bổ sung giá trị thiếu từ cột sau.
-    if result.columns.duplicated().any():
-        merged_columns = {}
+            rename[found] = target
+            mapping[str(found)] = target
 
-        for column in result.columns:
-            if column not in merged_columns:
-                merged_columns[column] = result[column]
+        elif found is not None:
+
+            mapping[str(found)] = target
+
+    out = df.rename(
+        columns=rename
+    ).copy()
+
+    # Giữ lại tất cả cột.
+    # Nếu cột trùng tên thì tự đánh số.
+
+    new_cols = []
+    seen = {}
+
+    for i, col in enumerate(out.columns, start=1):
+
+        name = str(col).strip() or f"Cột_{i}"
+
+        count = seen.get(name, 0)
+
+        seen[name] = count + 1
+
+        if count == 0:
+            new_cols.append(name)
+        else:
+            new_cols.append(f"{name}_{count + 1}")
+
+    out.columns = new_cols
+
+    return out, mapping
+
+
+# =========================================================
+# 9. CHUYỂN DỮ LIỆU SỐ
+# =========================================================
+
+def _to_number(series: pd.Series) -> pd.Series:
+
+    def parse(value):
+
+        if pd.isna(value):
+            return pd.NA
+
+        s = str(value).strip()
+
+        s = s.replace("\u00a0", "")
+        s = s.replace(" ", "")
+
+        if not s or s.lower() in {
+            "nan",
+            "none",
+            "null",
+            "-"
+        }:
+            return pd.NA
+
+        # Có cả dấu chấm và dấu phẩy.
+        if "," in s and "." in s:
+
+            if s.rfind(",") > s.rfind("."):
+
+                s = s.replace(".", "")
+                s = s.replace(",", ".")
+
             else:
-                merged_columns[column] = (
-                    merged_columns[column].combine_first(
-                        result[column]
-                    )
-                )
 
-        result = pd.DataFrame(merged_columns)
+                s = s.replace(",", "")
 
-    return result, mapping
+        # Chỉ có dấu phẩy.
+        elif "," in s:
+
+            tail = s.rsplit(",", 1)[-1]
+
+            if len(tail) in (1, 2):
+
+                s = s.replace(",", ".")
+
+            else:
+
+                s = s.replace(",", "")
+
+        # Chỉ có dấu chấm.
+        elif "." in s:
+
+            tail = s.rsplit(".", 1)[-1]
+
+            if len(tail) == 3 and s.count(".") == 1:
+
+                s = s.replace(".", "")
+
+        try:
+
+            return float(s)
+
+        except ValueError:
+
+            return pd.NA
+
+    return series.map(parse).astype("Float64")
 
 
 # =========================================================
-# 7. CHUẨN HÓA DỮ LIỆU OHLCV
+# 10. CHUẨN HÓA DỮ LIỆU THỊ TRƯỜNG
 # =========================================================
 
-def normalize_market_data(df, symbol=""):
-    """
-    Chuẩn hóa dữ liệu OHLCV.
+def normalize_market_data(
+    df: pd.DataFrame,
+    symbol: str = ""
+):
 
-    Yêu cầu:
-        date, open, high, low, close, volume
-
-    Không tự điền giá bị thiếu.
-    Không tự tạo dữ liệu giả.
-    """
-
-    result, mapping = normalize_columns(df)
+    out, mapping = normalize_columns(df)
 
     required = [
         "date",
@@ -388,545 +541,479 @@ def normalize_market_data(df, symbol=""):
     ]
 
     missing = [
-        column for column in required
-        if column not in result.columns
+        c for c in required
+        if c not in out.columns
     ]
 
     if missing:
+
         raise ValueError(
-            "Thiếu cột bắt buộc: " + ", ".join(missing)
+            "Thiếu cột OHLCV: "
+            + ", ".join(missing)
         )
 
-    result["date"] = pd.to_datetime(
-        result["date"],
+    out["date"] = pd.to_datetime(
+        out["date"],
+        dayfirst=True,
         errors="coerce"
     )
 
-    for column in [
+    for col in [
         "open",
         "high",
         "low",
         "close",
         "volume"
     ]:
-        result[column] = _numeric_series(
-            result[column]
+
+        out[col] = _to_number(out[col])
+
+    if "symbol" not in out.columns:
+
+        out["symbol"] = (
+            str(symbol).strip().upper()
+            if symbol
+            else "UNKNOWN"
         )
 
-    if "symbol" not in result.columns:
-        result["symbol"] = (
-            str(symbol).strip().upper()
-            if symbol else ""
-        )
     else:
-        result["symbol"] = (
-            result["symbol"]
-            .fillna("")
-            .astype(str)
+
+        out["symbol"] = (
+            out["symbol"]
+            .astype("string")
             .str.strip()
             .str.upper()
         )
 
         if symbol:
-            result.loc[
-                result["symbol"].isin(["", "NAN", "NONE"]),
-                "symbol"
-            ] = str(symbol).strip().upper()
 
-    # Chỉ loại các dòng thiếu trường OHLCV bắt buộc.
-    result = result.dropna(
-        subset=required,
-        how="any"
-    )
+            out["symbol"] = out["symbol"].replace(
+                "",
+                symbol.strip().upper()
+            )
 
-    result = result.sort_values(
+    out = out.sort_values(
         ["symbol", "date"],
-        kind="stable"
+        na_position="last"
     ).reset_index(drop=True)
 
-    return result, mapping
+    return out, mapping
 
 
 # =========================================================
-# 8. KIỂM TRA DỮ LIỆU
+# 11. KIỂM TRA CHẤT LƯỢNG DỮ LIỆU
 # =========================================================
 
-def validate_table(df):
-    """
-    Kiểm tra cấu trúc và chất lượng OHLCV.
-
-    Chỉ cảnh báo, không tự sửa dữ liệu.
-    """
+def validate_table(df: pd.DataFrame):
 
     issues = []
 
     if df is None or df.empty:
-        return ["Bảng dữ liệu đang trống."]
 
-    required = [
+        return ["Bảng không có dữ liệu."]
+
+    required = {
         "date",
         "open",
         "high",
         "low",
         "close",
         "volume"
-    ]
+    }
 
-    missing = [
-        column for column in required
-        if column not in df.columns
-    ]
+    # Bảng tổng quát không nhất thiết là OHLCV.
+    if not required.issubset(df.columns):
 
-    if missing:
         return [
-            "Thiếu cột: " + ", ".join(missing)
+            "Không đủ 6 cột OHLCV; "
+            "đây được xem là bảng dữ liệu tổng quát."
         ]
 
-    # Kiểm tra ngày.
-    dates = pd.to_datetime(
-        df["date"],
-        errors="coerce"
-    )
+    # Kiểm tra ô trống.
+    missing = df[list(required)].isna().any(axis=1)
 
-    if dates.isna().any():
+    if missing.any():
+
         issues.append(
-            f"Có {int(dates.isna().sum())} dòng ngày giao dịch không hợp lệ."
+            f"Có {int(missing.sum())} dòng thiếu "
+            "ngày/giá/khối lượng."
         )
 
-    # Kiểm tra kiểu số.
-    numeric_data = {}
-
-    for column in [
+    numeric = [
         "open",
         "high",
         "low",
         "close",
         "volume"
-    ]:
-        numeric_data[column] = pd.to_numeric(
-            df[column],
-            errors="coerce"
-        )
+    ]
 
-        invalid_count = int(
-            numeric_data[column].isna().sum()
-        )
-
-        if invalid_count:
-            issues.append(
-                f"Cột {column} có {invalid_count} giá trị không phải số."
-            )
-
-    valid_prices = pd.DataFrame(numeric_data)
-
-    valid_prices = valid_prices.dropna(
-        subset=["open", "high", "low", "close"]
+    n = df[numeric].apply(
+        pd.to_numeric,
+        errors="coerce"
     )
 
-    if not valid_prices.empty:
-        non_positive = (
-            valid_prices[
-                ["open", "high", "low", "close"]
-            ] <= 0
-        ).any(axis=1)
+    bad_numeric = n.isna().any(axis=1)
 
-        if non_positive.any():
-            issues.append(
-                f"Có {int(non_positive.sum())} dòng có giá OHLC nhỏ hơn hoặc bằng 0."
-            )
+    if bad_numeric.any():
 
-        invalid_ohlc = (
-            (
-                valid_prices["high"]
-                < valid_prices[
-                    ["open", "close", "low"]
-                ].max(axis=1)
-            )
-            |
-            (
-                valid_prices["low"]
-                > valid_prices[
-                    ["open", "close", "high"]
-                ].min(axis=1)
-            )
-        )
-
-        if invalid_ohlc.any():
-            issues.append(
-                f"Có {int(invalid_ohlc.sum())} dòng sai quan hệ OHLC."
-            )
-
-    volume = numeric_data["volume"]
-
-    negative_volume = volume < 0
-
-    if negative_volume.any():
         issues.append(
-            f"Có {int(negative_volume.sum())} dòng có khối lượng âm."
+            f"Có {int(bad_numeric.sum())} dòng "
+            "có dữ liệu số không hợp lệ."
         )
 
-    # Kiểm tra trùng mã/ngày.
-    duplicate_keys = (
-        ["symbol", "date"]
-        if "symbol" in df.columns
-        else ["date"]
+    # Kiểm tra quan hệ OHLC.
+    bad_ohlc = (
+        (n["high"] < n[["open", "low", "close"]].max(axis=1))
+        |
+        (n["low"] > n[["open", "high", "close"]].min(axis=1))
     )
 
-    duplicate_mask = df.duplicated(
-        subset=duplicate_keys,
-        keep=False
-    )
+    if bad_ohlc.fillna(False).any():
 
-    if duplicate_mask.any():
         issues.append(
-            f"Có {int(duplicate_mask.sum())} dòng trùng khóa "
-            f"{'symbol + date' if 'symbol' in df.columns else 'date'}."
+            f"Có {int(bad_ohlc.fillna(False).sum())} dòng "
+            "sai quan hệ High/Low/OHLC."
+        )
+
+    # Khối lượng không được âm.
+    if (n["volume"] < 0).fillna(False).any():
+
+        issues.append("Có khối lượng âm.")
+
+    # Kiểm tra dòng trùng.
+    key_cols = [
+        c for c in ["symbol", "date"]
+        if c in df.columns
+    ]
+
+    if key_cols and df.duplicated(key_cols).any():
+
+        issues.append(
+            f"Có {int(df.duplicated(key_cols).sum())} "
+            f"dòng trùng theo khóa {key_cols}."
         )
 
     return issues
 
 
 # =========================================================
-# 9. GHÉP DỮ LIỆU CŨ VÀ MỚI
+# 12. GỘP FILE CŨ VÀ DỮ LIỆU MỚI
 # =========================================================
 
-def merge_old_and_new(old_df, new_df, keys=None):
-    """
-    Ghép dữ liệu cũ và mới.
-
-    Quy tắc:
-    - Dữ liệu mới được ưu tiên khi trùng khóa.
-    - Không tự cộng khối lượng.
-    - Không tự tính trung bình giá.
-    - Trả về số dòng trùng đã loại bỏ.
-    """
-
-    if old_df is None or new_df is None:
-        raise ValueError("Dữ liệu cũ hoặc dữ liệu mới đang trống.")
-
-    old_df = old_df.copy()
-    new_df = new_df.copy()
+def merge_old_and_new(
+    old_df: pd.DataFrame,
+    new_df: pd.DataFrame,
+    keys=None
+):
 
     if keys is None:
-        if (
-            "symbol" in old_df.columns
-            and "symbol" in new_df.columns
-            and "date" in old_df.columns
-            and "date" in new_df.columns
-        ):
-            keys = ["symbol", "date"]
-        elif (
-            "date" in old_df.columns
-            and "date" in new_df.columns
-        ):
-            keys = ["date"]
-        else:
-            raise ValueError(
-                "Không tìm được khóa mặc định để ghép dữ liệu."
-            )
 
-    keys = list(keys)
+        keys = [
+            c for c in ["symbol", "date"]
+            if c in old_df.columns
+            and c in new_df.columns
+        ]
+
+    keys = list(keys or [])
 
     if not keys:
-        raise ValueError("Phải chọn ít nhất một cột khóa.")
 
-    missing_keys = [
-        key for key in keys
-        if key not in old_df.columns
-        or key not in new_df.columns
+        raise ValueError(
+            "Cần chọn ít nhất một cột khóa để cập nhật."
+        )
+
+    missing = [
+        c for c in keys
+        if c not in old_df.columns
+        or c not in new_df.columns
     ]
 
-    if missing_keys:
+    if missing:
+
         raise ValueError(
-            "Thiếu cột khóa: " + ", ".join(missing_keys)
+            "Thiếu cột khóa ở file cũ hoặc dữ liệu mới: "
+            + ", ".join(missing)
         )
 
-    # Chuẩn hóa ngày để tránh cùng ngày nhưng khác kiểu dữ liệu.
-    if "date" in keys:
-        old_df["date"] = pd.to_datetime(
-            old_df["date"],
-            errors="coerce"
-        )
-
-        new_df["date"] = pd.to_datetime(
-            new_df["date"],
-            errors="coerce"
-        )
-
-    # Chuẩn hóa mã cổ phiếu.
-    if "symbol" in keys:
-        old_df["symbol"] = (
-            old_df["symbol"].astype(str).str.strip().str.upper()
-        )
-
-        new_df["symbol"] = (
-            new_df["symbol"].astype(str).str.strip().str.upper()
-        )
-
+    # Dữ liệu mới được ưu tiên khi trùng khóa.
     combined = pd.concat(
         [old_df, new_df],
         ignore_index=True,
         sort=False
     )
 
-    before = len(combined)
-
-    combined = combined.drop_duplicates(
-        subset=keys,
+    duplicate_mask = combined.duplicated(
+        keys,
         keep="last"
     )
 
-    removed = before - len(combined)
+    duplicate_count = int(
+        duplicate_mask.sum()
+    )
 
-    # Sắp xếp theo mã và ngày nếu có.
-    sort_columns = [
-        column for column in ["symbol", "date"]
-        if column in combined.columns
-    ]
+    merged = combined.loc[
+        ~duplicate_mask
+    ].copy()
 
-    if sort_columns:
-        combined = combined.sort_values(
-            sort_columns,
+    if "date" in merged.columns:
+
+        parsed = pd.to_datetime(
+            merged["date"],
+            errors="coerce",
+            dayfirst=True
+        )
+
+        merged = (
+            merged.assign(_sort_date=parsed)
+            .sort_values(
+                keys,
+                kind="stable"
+            )
+            .drop(columns="_sort_date")
+        )
+
+    else:
+
+        merged = merged.sort_values(
+            keys,
             kind="stable"
         )
 
-    combined = combined.reset_index(drop=True)
-
-    return combined, removed
+    return merged.reset_index(drop=True), duplicate_count
 
 
 # =========================================================
-# 10. DANH SÁCH FILE ĐÃ LƯU
+# 13. ĐỌC FILE ĐÃ LƯU
+# =========================================================
+
+def _read_saved(path: Path) -> pd.DataFrame:
+
+    if path.suffix.lower() == ".csv":
+
+        return _read_csv_bytes(
+            path.read_bytes()
+        )
+
+    if path.suffix.lower() == ".xlsx":
+
+        return pd.read_excel(
+            path,
+            dtype=object
+        )
+
+    raise ValueError(
+        "Định dạng file lưu không được hỗ trợ."
+    )
+
+
+# =========================================================
+# 14. DANH SÁCH FILE ĐÃ LƯU
 # =========================================================
 
 def list_saved_files():
-    """
-    Liệt kê file CSV/XLSX trong kho Tab 5.
-
-    Không hiển thị file backup.
-    """
 
     DATA_DIR.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    files = []
-
-    for path in DATA_DIR.iterdir():
-        if not path.is_file():
-            continue
-
-        if path.suffix.lower() not in {".csv", ".xlsx"}:
-            continue
-
-        if "_backup" in path.stem.lower():
-            continue
-
-        files.append(path.name)
-
-    return sorted(files)
+    return sorted(
+        p.name
+        for p in DATA_DIR.iterdir()
+        if (
+            p.is_file()
+            and p.suffix.lower() in {".csv", ".xlsx"}
+            and ".backup" not in p.name
+            and not p.name.endswith(".tmp")
+        )
+    )
 
 
 # =========================================================
-# 11. ĐỌC FILE ĐÃ LƯU
+# 15. MỞ FILE ĐÃ LƯU
 # =========================================================
 
-def load_saved_file(filename):
-    """Đọc một file CSV/XLSX trong kho Tab 5."""
+def load_saved_file(filename: str) -> pd.DataFrame:
 
-    path = _get_saved_path(filename)
+    path = _path_for(filename)
 
     if not path.exists():
+
         raise FileNotFoundError(
-            f"Không tìm thấy file: {path.name}"
+            f"Không tìm thấy file: {filename}"
         )
+
+    return _read_saved(path)
+
+
+# =========================================================
+# 16. GHI FILE
+# =========================================================
+
+def _write_file(
+    df: pd.DataFrame,
+    path: Path
+):
 
     if path.suffix.lower() == ".csv":
-        return pd.read_csv(
-            path,
-            encoding="utf-8-sig"
-        )
 
-    return pd.read_excel(path)
-
-
-# =========================================================
-# 12. LƯU THÀNH FILE MỚI
-# =========================================================
-
-def save_new_file(df, filename, file_type="xlsx"):
-    """
-    Lưu file mới.
-
-    Không ghi đè file đã tồn tại.
-    """
-
-    if df is None:
-        raise ValueError("Không có dữ liệu để lưu.")
-
-    if not isinstance(df, pd.DataFrame):
-        raise TypeError("Dữ liệu lưu phải là DataFrame.")
-
-    if df.empty:
-        raise ValueError("Không thể lưu bảng dữ liệu trống.")
-
-    DATA_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    safe_name = Path(
-        str(filename).strip()
-    ).stem.strip()
-
-    if not safe_name:
-        raise ValueError("Tên file không được để trống.")
-
-    safe_name = _safe_filename(safe_name)
-
-    file_type = str(file_type).lower().lstrip(".")
-
-    if file_type not in {"csv", "xlsx"}:
-        raise ValueError("Chỉ hỗ trợ định dạng CSV hoặc XLSX.")
-
-    extension = "." + file_type
-    path = DATA_DIR / f"{safe_name}{extension}"
-
-    if path.exists():
-        raise FileExistsError(
-            f"File {path.name} đã tồn tại. "
-            "Hãy chọn tên khác để tránh ghi đè dữ liệu."
-        )
-
-    if file_type == "csv":
         df.to_csv(
             path,
             index=False,
             encoding="utf-8-sig"
         )
-    else:
+
+    elif path.suffix.lower() == ".xlsx":
+
         df.to_excel(
             path,
             index=False,
             engine="openpyxl"
         )
 
-    return path
+    else:
+
+        raise ValueError(
+            "Chỉ lưu được CSV hoặc XLSX."
+        )
 
 
 # =========================================================
-# 13. CẬP NHẬT FILE CŨ VÀ SAO LƯU
+# 17. LƯU FILE MỚI
 # =========================================================
 
-def update_saved_file(df_new, filename, keys=None):
-    """
-    Cập nhật file cũ.
+def save_new_file(
+    df: pd.DataFrame,
+    filename: str,
+    file_type: str = "xlsx"
+) -> Path:
 
-    Quy trình:
-    1. Đọc file cũ.
-    2. Ghép dữ liệu mới.
-    3. Dòng mới thay thế dòng cũ nếu trùng khóa.
-    4. Tạo backup trước khi cập nhật.
-    5. Ghi dữ liệu mới bằng file tạm.
-    6. Chỉ thay file chính sau khi ghi file tạm thành công.
+    if df is None or df.empty:
 
-    Trả về:
-        merged, duplicate_count, backup_path
-    """
+        raise ValueError(
+            "Không thể lưu bảng trống."
+        )
+
+    ext = (
+        ".csv"
+        if file_type.lower() == "csv"
+        else ".xlsx"
+    )
+
+    name = _safe_filename(filename)
+
+    if not name.lower().endswith(ext):
+
+        name = Path(name).stem + ext
+
+    path = _path_for(name)
 
     DATA_DIR.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    path = _get_saved_path(filename)
+    if path.exists():
 
-    if not path.exists():
-        raise FileNotFoundError(
-            "File cần cập nhật không tồn tại."
+        raise FileExistsError(
+            f"File {path.name} đã tồn tại. "
+            "Hãy chọn tên khác hoặc dùng chức năng "
+            "cập nhật file cũ."
         )
+
+    _write_file(
+        df,
+        path
+    )
+
+    return path
+
+
+# =========================================================
+# 18. CẬP NHẬT FILE CŨ + SAO LƯU
+# =========================================================
+
+def update_saved_file(
+    df_new: pd.DataFrame,
+    filename: str,
+    keys=None
+):
 
     if df_new is None or df_new.empty:
+
         raise ValueError(
-            "Dữ liệu mới đang trống, không thực hiện cập nhật."
+            "Dữ liệu mới đang trống."
         )
 
-    # Đọc dữ liệu cũ.
-    if path.suffix.lower() == ".csv":
-        old_df = pd.read_csv(
-            path,
-            encoding="utf-8-sig"
-        )
-    elif path.suffix.lower() == ".xlsx":
-        old_df = pd.read_excel(path)
-    else:
-        raise ValueError(
-            "Chỉ cập nhật file CSV hoặc XLSX."
+    path = _path_for(filename)
+
+    if not path.exists():
+
+        raise FileNotFoundError(
+            f"Không tìm thấy file cũ: {filename}"
         )
 
-    # Ghép dữ liệu.
+    old_df = _read_saved(path)
+
     merged, duplicate_count = merge_old_and_new(
         old_df,
         df_new,
         keys=keys
     )
 
-    # Tạo tên backup duy nhất.
-    backup_path = path.with_name(
-        path.stem + "_backup" + path.suffix
+    # Tạo bản sao lưu trước khi ghi đè.
+    backup = path.with_name(
+        path.stem + ".backup" + path.suffix
     )
 
-    counter = 1
+    if backup.exists():
 
-    while backup_path.exists():
-        backup_path = path.with_name(
-            f"{path.stem}_backup_{counter}{path.suffix}"
+        from datetime import datetime
+
+        backup = path.with_name(
+            path.stem
+            + ".backup_"
+            + datetime.now().strftime("%Y%m%d_%H%M%S")
+            + path.suffix
         )
-        counter += 1
 
-    # Sao lưu file gốc trước khi thay đổi.
-    backup_path.write_bytes(
+    backup.write_bytes(
         path.read_bytes()
     )
 
-    # Ghi ra file tạm trước.
-    temp_path = path.with_name(
-        path.stem + "_updating" + path.suffix
+    # Ghi file tạm, sau đó thay thế file cũ.
+    temp = path.with_name(
+        path.stem + ".tmp" + path.suffix
     )
 
     try:
-        if path.suffix.lower() == ".csv":
-            merged.to_csv(
-                temp_path,
-                index=False,
-                encoding="utf-8-sig"
-            )
-        else:
-            merged.to_excel(
-                temp_path,
-                index=False,
-                engine="openpyxl"
-            )
 
-        # Thay file chính sau khi ghi file tạm thành công.
-        temp_path.replace(path)
+        _write_file(
+            merged,
+            temp
+        )
+
+        temp.replace(path)
 
     except Exception:
-        if temp_path.exists():
-            temp_path.unlink()
+
+        if temp.exists():
+            temp.unlink()
 
         raise
 
-    return merged, duplicate_count, backup_path
+    return (
+        merged,
+        duplicate_count,
+        backup
+    )
 
 
 # =========================================================
-# 14. XUẤT CSV
+# 19. XUẤT CSV
 # =========================================================
 
-def to_csv_bytes(df):
-    """Xuất DataFrame thành CSV UTF-8-SIG."""
+def to_csv_bytes(df: pd.DataFrame) -> bytes:
 
     if df is None:
         raise ValueError("Không có dữ liệu để xuất.")
@@ -937,27 +1024,25 @@ def to_csv_bytes(df):
 
 
 # =========================================================
-# 15. XUẤT EXCEL
+# 20. XUẤT EXCEL
 # =========================================================
 
-def to_excel_bytes(df):
-    """Xuất DataFrame thành file XLSX trong bộ nhớ."""
+def to_excel_bytes(df: pd.DataFrame) -> bytes:
 
     if df is None:
         raise ValueError("Không có dữ liệu để xuất.")
 
-    output = io.BytesIO()
+    bio = io.BytesIO()
 
     with pd.ExcelWriter(
-        output,
+        bio,
         engine="openpyxl"
     ) as writer:
+
         df.to_excel(
             writer,
             index=False,
             sheet_name="Data"
         )
 
-    output.seek(0)
-
-    return output.getvalue()
+    return bio.getvalue()
